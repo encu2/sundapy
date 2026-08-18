@@ -1,0 +1,11 @@
+.cache/
+.zig-cache/
+zig-out/
+.playwright-mcp/
+__pycache__/
+*.pyc
+*.o
+*.out
+strace.log
+strace_out.txt
+test_results.txt

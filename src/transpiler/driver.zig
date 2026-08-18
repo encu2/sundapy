@@ -1,0 +1,181 @@
+const std = @import("std");
+const ast = @import("../core/ast.zig");
+const Transpiler = @import("transpiler.zig").Transpiler;
+
+pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const u8 {
+    // First pass: check for #strict and collect imports recursively
+    for (program.items) |stmt| {
+        if (stmt.* == .directive_strict) {
+            self.is_strict = true;
+        }
+        try self.collectImports(stmt);
+        try self.escape_analyzer.analyzeFirstPass(stmt);
+    }
+    for (program.items) |stmt| {
+        try self.escape_analyzer.analyzeSecondPass(stmt);
+    }
+    
+    try self.emit("const std = @import(\"std\");\n\n", .{});
+    try self.emit("/// IMPORTS_PLACEHOLDER\n\n", .{});
+    
+    for (program.items) |stmt| {
+        if (stmt.* == .import_stmt) {
+            const i = stmt.import_stmt;
+            const base_target_name = if (i.alias) |a| a else i.name;
+            const target_name = try self.escapeKeyword(base_target_name);
+            defer self.allocator.free(target_name);
+            const mod_slash = try self.getModSlash(i.name);
+            defer self.allocator.free(mod_slash);
+            try self.emit("pub const {s} = @import(\"{s}.zig\");\n", .{target_name, mod_slash});
+        } else if (stmt.* == .from_import) {
+            const f = stmt.from_import;
+            const base_target_name = if (f.alias) |a| a else f.name;
+            const target_name = try self.escapeKeyword(base_target_name);
+            defer self.allocator.free(target_name);
+            const mod_slash = try self.getModSlash(f.module);
+            defer self.allocator.free(mod_slash);
+            try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_slash, mod_slash});
+            try self.emit("pub const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{target_name, mod_slash});
+            try self.emit("pub const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, target_name, mod_slash, f.name});
+            try self.emit("pub var {s}_dyn: @import(\"dynamic\").Dynamic = undefined;\n", .{target_name});
+        }
+    }
+    
+    try self.emit("\npub var alloc: std.mem.Allocator = undefined;\n\n", .{});
+    
+    // Output global variables for all top-level assignments
+    var global_vars = std.StringHashMap(bool).init(self.allocator);
+    defer global_vars.deinit();
+    
+    var strict_funcs = std.StringHashMap(bool).init(self.allocator);
+    defer strict_funcs.deinit();
+    
+    
+    for (program.items) |stmt| {
+        if (stmt.* == .assign) {
+            const a = stmt.assign;
+            if (!global_vars.contains(a.target)) {
+                try global_vars.put(a.target, true);
+                if (self.is_strict) {
+                    if (a.type_ann) |t| {
+                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                    } else {
+                        std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
+                        return error.MissingTypeAnnotation;
+                    }
+                } else {
+                    if (a.type_ann) |t| {
+                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                    } else {
+                        if (self.escape_analyzer.variables.get(a.target)) |v_info| {
+                            if (v_info.class == .stack and v_info.is_primitive) {
+                                // Use inferred primitive type for global
+                                const t = self.escape_analyzer.primitiveTypeString(a.value);
+                                try self.emit("var {s}: {s} = undefined;\n", .{a.target, t});
+                                continue;
+                            }
+                        }
+                        try self.emit("var {s}: Dynamic = undefined;\n", .{a.target});
+                    }
+                }
+            }
+        } else if (stmt.* == .const_assign) {
+            // Actually const assignment needs a value, but we can just let it be in main()
+            // unless functions need them. We will just put everything in main for const for now.
+        } else if (stmt.* == .def_stmt) {
+            const d = stmt.def_stmt;
+            if (d.is_strict or self.is_strict) {
+                try strict_funcs.put(d.name, true);
+            }
+        } else if (stmt.* == .class_stmt) {
+            const c = stmt.class_stmt;
+            try self.classes.put(c.name, true);
+            try self.class_asts.put(c.name, stmt);
+        }
+    }
+    
+    // Output all top-level defs or classes
+    for (program.items) |stmt| {
+        if (stmt.* == .def_stmt) {
+            const d = stmt.def_stmt;
+            try @import("stmt/stmt_def.zig").transpileDefStmt(self, d, &global_vars, &strict_funcs);
+        } else if (stmt.* == .class_stmt) {
+            try @import("stmt/stmt_class.zig").transpileClassStmt(self, stmt.class_stmt, &strict_funcs);
+        }
+    }
+    
+    // For python-like scripts, top level statements must be in __sundapy_module_init
+    try self.emit("pub fn __sundapy_module_init() !void {{\n", .{});
+    self.indent_level += 1;
+    try self.emitIndent();
+    try self.emit("alloc = std.heap.page_allocator;\n", .{});
+
+    // Emit init calls for all imported modules (ABI wrappers need __sundapy_module_init)
+    for (program.items) |stmt| {
+        if (stmt.* == .import_stmt) {
+            const i = stmt.import_stmt;
+            const base_target_name = if (i.alias) |a| a else i.name;
+            const target_name = try self.escapeKeyword(base_target_name);
+            defer self.allocator.free(target_name);
+            try self.emitIndent();
+            try self.emit("if (@hasDecl({s}, \"__sundapy_module_init\")) try {s}.__sundapy_module_init();\n", .{target_name, target_name});
+        } else if (stmt.* == .from_import) {
+            const f = stmt.from_import;
+            const base_target_name = if (f.alias) |a| a else f.name;
+            const target_name = try self.escapeKeyword(base_target_name);
+            defer self.allocator.free(target_name);
+            const mod_slash = try self.getModSlash(f.module);
+            defer self.allocator.free(mod_slash);
+            
+            try self.emitIndent();
+            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_slash, mod_slash});
+            try self.emitIndent();
+            try self.emit("if (_sundapy_is_abi_{s}) {{\n", .{target_name});
+            try self.emitIndent();
+            try self.emit("    {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_slash, f.name});
+            try self.emitIndent();
+            try self.emit("}}\n", .{});
+        }
+    }
+
+    
+    var declared_vars = std.StringHashMap(bool).init(self.allocator);
+    defer declared_vars.deinit();
+
+    var it = global_vars.iterator();
+    while (it.next()) |entry| {
+        try declared_vars.put(entry.key_ptr.*, true);
+    }
+
+    for (program.items) |stmt| {
+        if (stmt.* == .import_stmt or stmt.* == .from_import) continue;
+        try self.transpileStmt(stmt, &declared_vars, &strict_funcs);
+    }
+    
+    self.indent_level -= 1;
+    try self.emit("}}\n", .{});
+    
+    // Check if `dynamic.` or `Dynamic` is used in the output
+    var needs_dynamic = false;
+    if (std.mem.indexOf(u8, self.out.items, "dynamic.") != null) needs_dynamic = true;
+    if (std.mem.indexOf(u8, self.out.items, "Dynamic") != null) needs_dynamic = true;
+    
+    const out_str = self.out.items;
+    if (needs_dynamic) {
+        const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", "const dynamic = @import(\"dynamic\");\nconst Dynamic = dynamic.Dynamic;\n\n");
+        self.out.deinit(self.allocator);
+        var new_out = std.ArrayListUnmanaged(u8).empty;
+        try new_out.appendSlice(self.allocator, final_out);
+        self.allocator.free(final_out);
+        self.out = new_out;
+    } else {
+        const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", "");
+        self.out.deinit(self.allocator);
+        var new_out = std.ArrayListUnmanaged(u8).empty;
+        try new_out.appendSlice(self.allocator, final_out);
+        self.allocator.free(final_out);
+        self.out = new_out;
+    }
+
+    return self.out.items;
+}
