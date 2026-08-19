@@ -8,7 +8,7 @@ pub fn len(self: Dynamic) usize {
         .list_type => |l| l.items.items.len,
         .tuple_type => |t| t.items.len,
         .numpy_array_type => |n| n.items.items.len,
-        .py_obj_type => |p| if (p) |obj| @import("python_abi").PikaPython.getLength(obj) else 0,
+        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PikaPython.getLength(obj) else 0,
         else => 0,
     };
 }
@@ -20,7 +20,7 @@ pub fn getItem(self: Dynamic, idx: usize) Dynamic {
         .list_type => |l| l.items.items[idx],
         .tuple_type => |t| t.items[idx],
         .numpy_array_type => |n| n.items.items[idx],
-        .py_obj_type => |p| if (p) |obj| @import("python_abi").PikaPython.getItem(obj, idx) else .{ .value = .{ .none_type = {} } },
+        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PikaPython.getItem(obj, idx) else .{ .value = .{ .none_type = {} } },
         else => .{ .value = .{ .none_type = {} } },
     };
 }
@@ -56,7 +56,7 @@ pub fn getDynamicItem(self: Dynamic, index: Dynamic) !Dynamic {
         if (self.value.py_obj_type) |obj| {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
-            return @import("python_abi").PikaPython.getDynamicItem(obj, arena.allocator(), index) catch return error.KeyError;
+            return @import("python_abi.zig").PikaPython.getDynamicItem(obj, arena.allocator(), index) catch return error.KeyError;
         }
     }
     return error.TypeError;

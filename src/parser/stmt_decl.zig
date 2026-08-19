@@ -2,7 +2,7 @@ const std = @import("std");
 const ast = @import("../core/ast.zig");
 const Parser = @import("parser.zig").Parser;
 
-pub fn parseDefStmt(self: *Parser) anyerror!*ast.Node {
+pub fn parseDefStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
     const name = self.current.lexeme;
     try self.expect(.Identifier);
     try self.expect(.LParen);
@@ -46,7 +46,7 @@ pub fn parseDefStmt(self: *Parser) anyerror!*ast.Node {
         is_strict = true;
     }
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .def_stmt = .{ .name = name, .params = params, .return_type = ret_type, .body = block, .is_strict = is_strict } };
+    node.* = .{ .def_stmt = .{ .name = name, .params = params, .return_type = ret_type, .body = block, .is_strict = is_strict, .is_async = is_async } };
     return node;
 }
 

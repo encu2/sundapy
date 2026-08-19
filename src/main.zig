@@ -27,6 +27,7 @@ pub fn main(ctx: std.process.Init) !void {
     _ = args_iter.next(); // skip executable
 
     var is_build_mode = false;
+    var is_no_panic = false;
     var is_fetch_mode = false;
     var script_path: ?[]const u8 = null;
     var auto_yes = false;
@@ -35,6 +36,12 @@ pub fn main(ctx: std.process.Init) !void {
 
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--build")) {
+            is_build_mode = true;
+        }
+        if (std.mem.eql(u8, arg, "--no-panic")) {
+            is_no_panic = true;
+            std.debug.print("WARNING: --no-panic is enabled. No error logs will be printed on crash.\n", .{});
+        } else if (false) {
             is_build_mode = true;
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp();
@@ -144,6 +151,9 @@ pub fn main(ctx: std.process.Init) !void {
             var threads: std.ArrayList(std.Thread) = .empty;
             defer threads.deinit(allocator);
             
+            compiler.global_uses_dynamic = false;
+            compiler.global_uses_c_abi = false;
+            compiler.is_no_panic = is_no_panic;
             compiler.global_missing_modules = .empty;
             compiler.global_missing_initialized = true;
             defer {
@@ -222,30 +232,59 @@ pub fn main(ctx: std.process.Init) !void {
 
         // [Compilation Phase]
         
-        const entry_content = try std.fmt.allocPrint(allocator, 
-            "const std = @import(\"std\");\nconst script = @import(\"{s}.zig\");\npub fn main() !void {{\n    try script.__sundapy_module_init();\n}}\n",
-            .{stem});
-        defer allocator.free(entry_content);
-        try cwd.writeFile(io, .{ .sub_path = ".cache/src/__entry.zig", .data = entry_content });
+        var entry_content_str = std.ArrayList(u8).empty;
+        defer entry_content_str.deinit(allocator);
+        
+        const part1 = try std.fmt.allocPrint(allocator, "const std = @import(\"std\");\nconst script = @import(\"{s}.zig\");\n", .{stem});
+        defer allocator.free(part1);
+        try entry_content_str.appendSlice(allocator, part1);
+        
+        if (compiler.is_no_panic) {
+            try entry_content_str.appendSlice(allocator, "pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn { _=msg; _=error_return_trace; _=ret_addr; while (true) {} }\n");
+        }
+        
+        try entry_content_str.appendSlice(allocator, "pub fn main() !void {\n    try script.__sundapy_module_init();\n}\n");
+        
+        try cwd.writeFile(io, .{ .sub_path = ".cache/src/__entry.zig", .data = entry_content_str.items });
 
         const emit_bin_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{cached_bin_path});
         defer allocator.free(emit_bin_arg);
 
-        const root_arg = "-Mroot=.cache/src/__entry.zig";
+        const root_arg = ".cache/src/__entry.zig";
 
-        const zig_cmd = &[_][]const u8{
-            zig_bin, "build-exe", "--dep", "dynamic", "--dep", "python_abi", root_arg, 
-            "--dep", "python_abi", "-Mdynamic=src/datatype/dynamic.zig", 
-            "--dep", "dynamic", "-Mpython_abi=src/datatype/python_abi.zig",
-            "-O", "ReleaseSmall", "-lc",
+
+// Copy datatype dir to cache so relative imports work
+        cwd.access(io, ".cache/src/datatype", .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                const cp_dt_res = try std.process.run(allocator, io, .{
+                    .argv = &[_][]const u8{"cp", "-r", "src/datatype", ".cache/src/"},
+                });
+                if (cp_dt_res.term != .exited or cp_dt_res.term.exited != 0) {
+                    std.debug.print("Failed to copy datatype!\n{s}\n", .{cp_dt_res.stderr});
+                }
+            }
+        };
+        
+        var zig_cmd = std.ArrayList([]const u8).empty;
+        defer zig_cmd.deinit(allocator);
+        
+        try zig_cmd.appendSlice(allocator, &[_][]const u8{
+            zig_bin, "build-exe", root_arg,
+            "-O", "ReleaseSmall",
+        });
+
+        try zig_cmd.appendSlice(allocator, &[_][]const u8{"-lc"});
+        
+        try zig_cmd.appendSlice(allocator, &[_][]const u8{
             "-fstrip",
             "--cache-dir", ".cache/zig_cache",
             "--global-cache-dir", ".cache/zig_global_cache",
             emit_bin_arg,
-        };
+        });
+
 
         const compile_res = try std.process.run(allocator, io, .{
-            .argv = zig_cmd,
+            .argv = zig_cmd.items,
         });
 
         if (compile_res.term != .exited or compile_res.term.exited != 0) {
@@ -303,7 +342,7 @@ fn printHelp() void {
         \\
         \\Options:
         \\  -h, --help    Show this help message and exit
-        \\  --build       Build a standalone executable from the Python script instead of running it directly
+        \\  --build       Build a standalone executable from the Python script instead of running it directly\n        \\  --fast        Run in fast development mode (bypasses LLVM optimization for 6x faster compile)
         \\
         \\Commands:
         \\  fetch <pkg>   Download and install a package via uv into .cache/pyLibrary

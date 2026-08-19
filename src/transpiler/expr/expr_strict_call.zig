@@ -127,7 +127,13 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
         }
         
         if (!handled) {
-            const is_class = name.len > 0 and name[0] >= 'A' and name[0] <= 'Z';
+            var is_class = false;
+            if (std.mem.lastIndexOf(u8, name, ".")) |last_dot| {
+                const base_name = name[last_dot + 1..];
+                is_class = base_name.len > 0 and base_name[0] >= 'A' and base_name[0] <= 'Z';
+            } else {
+                is_class = name.len > 0 and name[0] >= 'A' and name[0] <= 'Z';
+            }
             if (self.classes.contains(name) or is_class) {
                 self.label_counter += 1;
                 const lid = self.label_counter;
@@ -215,13 +221,57 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                     }
                 }
             }
+            
+            self.label_counter += 1;
+            const lid = self.label_counter;
+            
             if (self.try_depth == 0) {
                 try self.emit("try ", .{});
             } else if (self.try_depth > 0) {
                 try self.emit("(", .{});
             }
-            try self.transpileExpr(c.callee);
-            try self.emit("(", .{});
+            
+            try self.emit("(blk_{d}: {{\n", .{lid});
+            try self.emit("    const _callee = ", .{});
+            if (c.callee.* == .identifier) {
+                try self.transpileExprStrict(c.callee);
+            } else {
+                try self.transpileExpr(c.callee);
+            }
+            try self.emit(";\n", .{});
+            try self.emit("    const T_callee = @TypeOf(_callee);\n", .{});
+            try self.emit("    if (T_callee == dynamic.Dynamic) {{\n", .{});
+            try self.emit("        var _args_arr = [_]Dynamic{{", .{});
+            for (c.args.items, 0..) |arg, idx| {
+                if (self.is_strict) {
+                    try self.transpileExprStrict(arg);
+                } else {
+                    try self.transpileExpr(arg);
+                }
+                if (idx < c.args.items.len - 1) try self.emit(", ", .{});
+            }
+            try self.emit("}};\n", .{});
+            
+            if (c.kwargs.items.len > 0) {
+                try self.emit("        var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
+                for (c.kwargs.items) |kw| {
+                    try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
+                    if (self.is_strict) {
+                        try self.transpileExprStrict(kw.value);
+                    } else {
+                        try self.transpileExpr(kw.value);
+                    }
+                    try self.emit(") catch {{}};\n", .{});
+                }
+                try self.emit("        break :blk_{d} _callee.builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid});
+            } else {
+                try self.emit("        break :blk_{d} _callee.builtin_call(alloc, &_args_arr, null);\n", .{lid});
+            }
+            
+            try self.emit("    }} else if (T_callee == type) {{\n", .{});
+            try self.emit("        var _obj = _callee{{}};\n", .{});
+            try self.emit("        if (@hasDecl(_callee, \"__init__\")) {{\n", .{});
+            try self.emit("            _ = try _obj.__init__(", .{});
             for (c.args.items, 0..) |arg, idx| {
                 if (is_strict_func or self.is_strict) {
                     try self.transpileExprStrict(arg);
@@ -230,7 +280,22 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 }
                 if (idx < c.args.items.len - 1) try self.emit(", ", .{});
             }
-            try self.emit(")", .{});
+            try self.emit(");\n        }}\n", .{});
+            try self.emit("        break :blk_{d} _obj;\n", .{lid});
+            try self.emit("    }} else {{\n", .{});
+            try self.emit("        break :blk_{d} _callee(", .{lid});
+            for (c.args.items, 0..) |arg, idx| {
+                if (is_strict_func or self.is_strict) {
+                    try self.transpileExprStrict(arg);
+                } else {
+                    try self.transpileExpr(arg);
+                }
+                if (idx < c.args.items.len - 1) try self.emit(", ", .{});
+            }
+            try self.emit(");\n", .{});
+            try self.emit("    }}\n", .{});
+            try self.emit("}})", .{});
+            
             if (self.try_depth > 0) {
                 self.label_counter += 1;
                 try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});

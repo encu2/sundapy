@@ -19,7 +19,7 @@ pub const TokenType = enum {
     KeywordTrue, KeywordFalse, KeywordNone, KeywordYield, KeywordIn,
     KeywordAnd, KeywordOr, KeywordNot, KeywordGlobal, KeywordConst,
     KeywordTry, KeywordExcept, KeywordFinally, KeywordRaise,
-    KeywordMatch, KeywordCase, KeywordAs,
+    KeywordMatch, KeywordCase, KeywordAs, KeywordAsync, KeywordAwait,
     Semicolon,
     DirectiveStrict,
     EOF,

@@ -6,6 +6,7 @@ pub const Transpiler = struct {
     out: std.ArrayList(u8),
     indent_level: usize = 0,
     is_strict: bool = false,
+    needs_dynamic: bool = false,
     strict_funcs: ?*std.StringHashMap(bool) = null,
     safe_funcs: ?*std.StringHashMap(bool) = null,
     current_declared_vars: ?*std.StringHashMap(bool) = null,
@@ -18,10 +19,17 @@ pub const Transpiler = struct {
     is_root: bool,
     escape_analyzer: *@import("analysis/escape.zig").EscapeAnalyzer,
     
-    pub fn init(allocator: std.mem.Allocator, is_root: bool) Transpiler {
+    depth: usize = 0,
+    pub fn init(allocator: std.mem.Allocator, is_root: bool, mod_name: []const u8) Transpiler {
         const ea = allocator.create(@import("analysis/escape.zig").EscapeAnalyzer) catch unreachable;
         ea.* = @import("analysis/escape.zig").EscapeAnalyzer.init(allocator);
 
+        var d_cnt: usize = 0;
+        if (!is_root and mod_name.len > 0) {
+            for (mod_name) |c| {
+                if (c == '.') d_cnt += 1;
+            }
+        }
         return Transpiler{
             .allocator = allocator,
             .out = .empty,
@@ -31,6 +39,7 @@ pub const Transpiler = struct {
             .module_aliases = std.StringHashMap([]const u8).init(allocator),
             .is_root = is_root,
             .escape_analyzer = ea,
+            .depth = d_cnt,
         };
     }
     

@@ -41,7 +41,7 @@ pub const Node = union(enum) {
     if_stmt: struct { condition: *Node, then_branch: std.ArrayList(*Node), elifs: std.ArrayList(ElifBranch), else_branch: ?std.ArrayList(*Node) },
     while_stmt: struct { condition: *Node, body: std.ArrayList(*Node) },
     for_stmt: struct { iterator: []const u8, iterable: *Node, body: std.ArrayList(*Node) },
-    def_stmt: struct { name: []const u8, params: std.ArrayList(Param), return_type: ?[]const u8, body: std.ArrayList(*Node), is_strict: bool },
+    def_stmt: struct { name: []const u8, params: std.ArrayList(Param), return_type: ?[]const u8, body: std.ArrayList(*Node), is_strict: bool, is_async: bool },
     class_stmt: struct { name: []const u8, base_class: ?[]const u8, methods: std.ArrayList(*Node) },
     return_stmt: struct { value: ?*Node },
     yield_stmt: struct { value: *Node },
@@ -58,5 +58,6 @@ pub const Node = union(enum) {
     pass_stmt: void,
     directive_strict: void,
     fstring: struct { value: []const u8 },
+    await_expr: struct { value: *Node },
     none: void,
 };

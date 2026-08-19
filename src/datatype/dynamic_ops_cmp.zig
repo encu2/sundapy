@@ -30,7 +30,7 @@ pub fn eq(a: Dynamic, b: Dynamic) Dynamic {
             }
         },
         .py_obj_type => |obj| {
-            if (obj) |p| return Dynamic.initBool(@import("python_abi").PikaPython.compare(p, b, 2));
+            if (obj) |p| return Dynamic.initBool(@import("python_abi.zig").PikaPython.compare(p, b, 2));
             return Dynamic.initBool(false);
         },
         else => return Dynamic.initBool(false),

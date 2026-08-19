@@ -129,7 +129,13 @@ const TokenType = lexer.TokenType;
         }
 
         if (self.match(.KeywordDef)) {
-            return try @import("stmt_decl.zig").parseDefStmt(self);
+            return try @import("stmt_decl.zig").parseDefStmt(self, false);
+        }
+        if (self.match(.KeywordAsync)) {
+            if (self.match(.KeywordDef)) {
+                return try @import("stmt_decl.zig").parseDefStmt(self, true);
+            }
+            return error.ParseError;
         }
         if (self.match(.KeywordClass)) {
             return try @import("stmt_decl.zig").parseClassStmt(self);
@@ -220,6 +226,16 @@ const TokenType = lexer.TokenType;
                 var type_ann: ?[]const u8 = null;
                 if (type_ann_node.* == .identifier) {
                     type_ann = type_ann_node.identifier.name;
+                } else if (type_ann_node.* == .getattr) {
+                    if (type_ann_node.getattr.target.* == .identifier) {
+                        const target_name = type_ann_node.getattr.target.identifier.name;
+                        const attr_name = type_ann_node.getattr.attr;
+                        const combined = try self.allocator.alloc(u8, target_name.len + attr_name.len + 1);
+                        std.mem.copyForwards(u8, combined[0..target_name.len], target_name);
+                        combined[target_name.len] = '.';
+                        std.mem.copyForwards(u8, combined[target_name.len + 1..], attr_name);
+                        type_ann = combined;
+                    }
                 } else if (type_ann_node.* == .none) {
                     type_ann = "None";
                 }

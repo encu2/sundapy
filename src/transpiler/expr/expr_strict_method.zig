@@ -30,7 +30,7 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
     }
     const is_string_method = std.mem.eql(u8, m.method, "split") or 
                              std.mem.eql(u8, m.method, "replace") or 
-                             std.mem.eql(u8, m.method, "join") or 
+                             (std.mem.eql(u8, m.method, "join") and m.args.items.len > 0) or 
                              std.mem.eql(u8, m.method, "upper") or 
                              std.mem.eql(u8, m.method, "lower");
                              
@@ -77,7 +77,10 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         try self.transpileExpr(m.target);
         try self.emit(";\n", .{});
         try self.emit("    if (@hasDecl(_target, \"{s}\")) {{\n", .{m.method});
-        try self.emit("        break :blk_{d} _target.{s}(", .{lid, m.method});
+        try self.emit("        if (@TypeOf(_target.{s}) == type) {{\n", .{m.method});
+        try self.emit("            var _obj = _target.{s}{{}};\n", .{m.method});
+        try self.emit("            if (@hasDecl(_target.{s}, \"__init__\")) {{\n", .{m.method});
+        try self.emit("                _ = try _obj.__init__(", .{});
         for (m.args.items, 0..) |arg, idx| {
             if (self.is_strict) {
                 try self.transpileExprStrict(arg);
@@ -86,7 +89,19 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
             }
             if (idx < m.args.items.len - 1) try self.emit(", ", .{});
         }
-        try self.emit(");\n", .{});
+        try self.emit(");\n            }}\n", .{});
+        try self.emit("            break :blk_{d} _obj;\n", .{lid});
+        try self.emit("        }} else {{\n", .{});
+        try self.emit("            break :blk_{d} _target.{s}(", .{lid, m.method});
+        for (m.args.items, 0..) |arg, idx| {
+            if (self.is_strict) {
+                try self.transpileExprStrict(arg);
+            } else {
+                try self.transpileExpr(arg);
+            }
+            if (idx < m.args.items.len - 1) try self.emit(", ", .{});
+        }
+        try self.emit(");\n        }}\n", .{});
         try self.emit("    }} else {{\n", .{});
         try self.emit("        var _args_arr = [_]Dynamic{{", .{});
         for (m.args.items, 0..) |arg, idx| {
@@ -137,7 +152,7 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         try self.transpileExpr(m.target);
         try self.emit(";\n", .{});
         try self.emit("    const T_target = @TypeOf(_target);\n", .{});
-        try self.emit("    if (T_target == @import(\"dynamic\").Dynamic) {{\n", .{});
+        try self.emit("    if (T_target == dynamic.Dynamic) {{\n", .{});
         try self.emit("        var _args_arr = [_]Dynamic{{", .{});
         for (m.args.items, 0..) |arg, idx| {
             if (self.is_strict) {

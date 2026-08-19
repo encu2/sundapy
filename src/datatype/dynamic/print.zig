@@ -73,7 +73,7 @@ pub fn printValue(self: Dynamic) void {
         },
         .py_obj_type => |p| {
             if (p) |obj| {
-                const str = @import("python_abi").PikaPython.getString(obj);
+                const str = @import("../python_abi.zig").PikaPython.getString(obj);
                 std.debug.print("{s}", .{str});
             } else {
                 std.debug.print("None", .{});

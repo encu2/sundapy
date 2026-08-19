@@ -47,6 +47,9 @@ fn findSoFile(allocator: std.mem.Allocator, io: std.Io, base_dir: []const u8, mo
     return null;
 }
 
+pub var global_uses_c_abi: bool = false;
+pub var is_no_panic: bool = false;
+pub var global_uses_dynamic: bool = false;
 pub const SharedVisited = struct {
     map: std.StringHashMap(bool),
     mutex: std.Io.Mutex = .init,
@@ -113,7 +116,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
     };
     defer program.deinit(allocator);
 
-    var transpiler = @import("../transpiler/transpiler.zig").Transpiler.init(allocator, is_root);
+    var transpiler = @import("../transpiler/transpiler.zig").Transpiler.init(allocator, is_root, if (mod_name) |m| m else "");
     defer transpiler.deinit();
 
     const zig_code = transpiler.transpile(program) catch |err| {
@@ -242,9 +245,9 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                                 
                                 const wrapper_code = try std.fmt.allocPrint(allocator,
                                     \\const std = @import("std");
-                                    \\const dynamic = @import("dynamic");
+                                    \\const dynamic = @import("datatype/dynamic.zig");
                                     \\const Dynamic = dynamic.Dynamic;
-                                    \\const PikaPython = @import("python_abi").PikaPython;
+                                    \\const PikaPython = @import("datatype/python_abi.zig").PikaPython;
                                     \\
                                     \\pub const _is_abi = true;
                                     \\pub var _module: Dynamic = undefined;

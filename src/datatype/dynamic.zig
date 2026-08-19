@@ -20,11 +20,20 @@ pub const DynType = enum {
     list_type,
     range_type,
     dict_type,
+
     set_type,
+    func_type_0,
+    func_type_1,
+    func_type_2,
+    func_type_3,
+
     frozenset_type,
     py_obj_type,
+    task_type,
     numpy_array_type,
 };
+
+pub var global_await_fn: ?*const fn (*anyopaque) Dynamic = null;
 
 pub const Dynamic = struct {
     value: Value,
@@ -58,10 +67,18 @@ pub const Dynamic = struct {
         
         // Sets
         set_type: set_type.Set,
+
+        // Functions
+        func_type_0: *const fn() anyerror!Dynamic,
+        func_type_1: *const fn(Dynamic) anyerror!Dynamic,
+        func_type_2: *const fn(Dynamic, Dynamic) anyerror!Dynamic,
+        func_type_3: *const fn(Dynamic, Dynamic, Dynamic) anyerror!Dynamic,
+
         frozenset_type: set_type.FrozenSet,
         
         // PikaPython / ABI bindings
         py_obj_type: ?*anyopaque,
+        task_type: ?*anyopaque,
         numpy_array_type: struct {
             items: std.ArrayList(Dynamic),
         },
@@ -105,6 +122,15 @@ pub const Dynamic = struct {
             .frozenset_type => |*f| f.deinit(),
             else => {}, // Primitives, immutable strings, range, none do not require dynamic allocation free
         }
+    }
+
+    pub fn awaitResult(self: Dynamic) Dynamic {
+        if (self.value == .task_type and self.value.task_type != null) {
+            if (global_await_fn) |await_fn| {
+                return await_fn(self.value.task_type.?);
+            }
+        }
+        return self;
     }
 
     pub fn print(self: Dynamic) void {
@@ -232,7 +258,7 @@ pub const Dynamic = struct {
     pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
         if (self.value == .py_obj_type) {
             if (self.value.py_obj_type) |obj| {
-                const PikaPython = @import("python_abi").PikaPython;
+                const PikaPython = @import("python_abi.zig").PikaPython;
                 return PikaPython.getAttribute(obj, attr) catch Dynamic{ .value = .{ .none_type = {} } };
             }
         }
@@ -242,9 +268,17 @@ pub const Dynamic = struct {
     pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
         if (self.value == .py_obj_type) {
             if (self.value.py_obj_type) |obj| {
-                const PikaPython = @import("python_abi").PikaPython;
+                const PikaPython = @import("python_abi.zig").PikaPython;
                 return PikaPython.callObject(obj, alloc, args, kwargs);
             }
+        } else if (self.value == .func_type_0) {
+            return self.value.func_type_0();
+        } else if (self.value == .func_type_1) {
+            return self.value.func_type_1(args[0]);
+        } else if (self.value == .func_type_2) {
+            return self.value.func_type_2(args[0], args[1]);
+        } else if (self.value == .func_type_3) {
+            return self.value.func_type_3(args[0], args[1], args[2]);
         }
         return error.TypeErrorNotCallable;
     }
@@ -280,5 +314,26 @@ pub fn stringify(allocator: std.mem.Allocator, val: anytype) Dynamic {
     } else {
         const str = std.fmt.allocPrint(allocator, "{any}", .{val}) catch "error";
         return Dynamic{ .value = .{ .str_type = str } };
+    }
+}
+
+
+pub fn toDynamicFunc(f: anytype) Dynamic {
+    const T = @TypeOf(f);
+    const info = @typeInfo(T);
+    if (info != .@"fn") {
+        @compileError("toDynamicFunc requires a function");
+    }
+    const params = info.@"fn".params;
+    if (params.len == 0) {
+        return Dynamic{ .value = .{ .func_type_0 = f } };
+    } else if (params.len == 1) {
+        return Dynamic{ .value = .{ .func_type_1 = f } };
+    } else if (params.len == 2) {
+        return Dynamic{ .value = .{ .func_type_2 = f } };
+    } else if (params.len == 3) {
+        return Dynamic{ .value = .{ .func_type_3 = f } };
+    } else {
+        @compileError("Unsupported function arity for toDynamicFunc");
     }
 }

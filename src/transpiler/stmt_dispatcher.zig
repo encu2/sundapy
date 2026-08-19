@@ -57,7 +57,13 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
             try self.emit("const {s}_mod = @import(\"{s}.zig\");\n", .{mod_slash, mod_slash});
             try self.emit("pub const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{mod_slash, mod_slash});
             try self.emit("pub const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, mod_slash, mod_slash, f.name});
-            try self.emit("pub var {s}_dyn: @import(\"dynamic\").Dynamic = undefined;\n", .{target_name});
+            try self.emit("pub var {s}_dyn: @import(\"datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name});
+        },
+        .await_expr => |aw| {
+            try self.emit("_ = (", .{});
+            try self.transpileExpr(aw.value);
+            try self.emit(")", .{});
+            try self.emit(".awaitResult();\n", .{});
         },
         else => {
             try self.emit("// Unhandled stmt type: {any}\n", .{stmt.*});

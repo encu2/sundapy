@@ -3,11 +3,28 @@ const ast = @import("../core/ast.zig");
 const Transpiler = @import("transpiler.zig").Transpiler;
 
 pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const u8 {
-    // First pass: check for #strict and collect imports recursively
+    var prefix_buf = try self.allocator.alloc(u8, self.depth * 3);
+    defer self.allocator.free(prefix_buf);
+    var _d: usize = 0;
+    while (_d < self.depth) : (_d += 1) {
+        @memcpy(prefix_buf[_d * 3 .. _d * 3 + 3], "../");
+    }
+    const prefix = prefix_buf;
+
+// First pass: check for #strict and collect imports recursively
+    var seen_code_before_strict = false;
     for (program.items) |stmt| {
         if (stmt.* == .directive_strict) {
             self.is_strict = true;
+            if (seen_code_before_strict) {
+                // User requirement: if there is Python code before #strict, dynamic cannot be dropped.
+                @import("../core/compiler.zig").global_uses_dynamic = true;
+            }
+        } else if (stmt.* != .import_stmt and stmt.* != .from_import) {
+            // Not an import, not a strict directive, this is actual code.
+            seen_code_before_strict = true;
         }
+        
         try self.collectImports(stmt);
         try self.escape_analyzer.analyzeFirstPass(stmt);
     }
@@ -37,7 +54,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_slash, mod_slash});
             try self.emit("pub const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{target_name, mod_slash});
             try self.emit("pub const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, target_name, mod_slash, f.name});
-            try self.emit("pub var {s}_dyn: @import(\"dynamic\").Dynamic = undefined;\n", .{target_name});
+            try self.emit("pub var {s}_dyn: @import(\"{s}datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name, prefix});
         }
     }
     
@@ -158,24 +175,28 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     // Check if `dynamic.` or `Dynamic` is used in the output
     var needs_dynamic = false;
     if (std.mem.indexOf(u8, self.out.items, "dynamic.") != null) needs_dynamic = true;
-    if (std.mem.indexOf(u8, self.out.items, "Dynamic") != null) needs_dynamic = true;
+    if (std.mem.indexOf(u8, self.out.items, " Dynamic") != null) needs_dynamic = true;
+    if (std.mem.indexOf(u8, self.out.items, "(Dynamic") != null) needs_dynamic = true;
+    if (std.mem.indexOf(u8, self.out.items, "Dynamic.") != null) needs_dynamic = true;
+    
+    if (needs_dynamic) {
+        @import("../core/compiler.zig").global_uses_dynamic = true;
+    }
     
     const out_str = self.out.items;
-    if (needs_dynamic) {
-        const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", "const dynamic = @import(\"dynamic\");\nconst Dynamic = dynamic.Dynamic;\n\n");
-        self.out.deinit(self.allocator);
-        var new_out = std.ArrayListUnmanaged(u8).empty;
-        try new_out.appendSlice(self.allocator, final_out);
-        self.allocator.free(final_out);
-        self.out = new_out;
-    } else {
-        const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", "");
-        self.out.deinit(self.allocator);
-        var new_out = std.ArrayListUnmanaged(u8).empty;
-        try new_out.appendSlice(self.allocator, final_out);
-        self.allocator.free(final_out);
-        self.out = new_out;
-    }
+    
+    const dyn_import_str = if (@import("../core/compiler.zig").global_uses_dynamic)
+        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\n\n", .{prefix})
+    else
+        try std.fmt.allocPrint(self.allocator, "// Pure static mode\nconst Dynamic = void;\n", .{});
+    defer self.allocator.free(dyn_import_str);
+        
+    const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", dyn_import_str);
+    self.out.deinit(self.allocator);
+    var new_out = std.ArrayListUnmanaged(u8).empty;
+    try new_out.appendSlice(self.allocator, final_out);
+    self.allocator.free(final_out);
+    self.out = new_out;
 
     return self.out.items;
 }

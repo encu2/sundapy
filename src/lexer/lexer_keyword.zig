@@ -34,5 +34,7 @@ pub fn matchKeyword(lexeme: []const u8) TokenType {
     if (std.mem.eql(u8, lexeme, "match")) return .KeywordMatch;
     if (std.mem.eql(u8, lexeme, "case")) return .KeywordCase;
     if (std.mem.eql(u8, lexeme, "as")) return .KeywordAs;
+    if (std.mem.eql(u8, lexeme, "async")) return .KeywordAsync;
+    if (std.mem.eql(u8, lexeme, "await")) return .KeywordAwait;
     return .Identifier;
 }

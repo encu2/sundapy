@@ -1,5 +1,5 @@
 const std = @import("std");
-const dynamic = @import("dynamic");
+const dynamic = @import("datatype/dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 
 pub fn array(arg: Dynamic) anyerror!Dynamic {

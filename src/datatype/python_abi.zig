@@ -1,5 +1,5 @@
 const std = @import("std");
-const dynamic = @import("dynamic");
+const dynamic = @import("dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 
 var lib: ?std.DynLib = null;
@@ -206,7 +206,7 @@ pub const PikaPython = struct {
         return Dynamic{ .value = .{ .py_obj_type = item.? } };
     }
 
-    pub fn compare(obj1: *anyopaque, val2: @import("dynamic").Dynamic, op: c_int) bool {
+    pub fn compare(obj1: *anyopaque, val2: @import("dynamic.zig").Dynamic, op: c_int) bool {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const py_val2 = dynamicToPyObject(val2) orelse return false;
@@ -234,7 +234,7 @@ pub const PikaPython = struct {
         return std.mem.span(utf8.?);
     }
 
-    pub fn getDynamicItem(obj: *anyopaque, alloc: std.mem.Allocator, key: @import("dynamic").Dynamic) !@import("dynamic").Dynamic {
+    pub fn getDynamicItem(obj: *anyopaque, alloc: std.mem.Allocator, key: @import("dynamic.zig").Dynamic) !@import("dynamic.zig").Dynamic {
         _ = alloc;
         const py_key = dynamicToPyObject(key);
         if (py_key == null) return error.PythonError;
@@ -245,6 +245,6 @@ pub const PikaPython = struct {
             fn_PyErr_Print();
             return error.PythonError;
         }
-        return @import("dynamic").Dynamic{ .value = .{ .py_obj_type = item.? } };
+        return @import("dynamic.zig").Dynamic{ .value = .{ .py_obj_type = item.? } };
     }
 };

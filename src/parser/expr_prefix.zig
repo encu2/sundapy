@@ -11,6 +11,11 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             const right = try parsePrefix(self);
             node.* = .{ .unary = .{ .op = op, .right = right } };
         },
+        .KeywordAwait => {
+            self.advance();
+            const right = try self.parseExpr(.none);
+            node.* = .{ .await_expr = .{ .value = right } };
+        },
         .Integer => {
             node.* = .{ .integer = self.current.lexeme };
             self.advance();

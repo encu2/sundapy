@@ -4,7 +4,7 @@ const ast = @import("../../core/ast.zig");
 
 pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
     switch (node.*) {
-        .number, .integer, .float, .string, .fstring, .global_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
+        .number, .integer, .float, .string, .fstring, .await_expr, .global_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
         .identifier => |i| return std.mem.eql(u8, i.name, func_name),
         .unary => |u| return isRecursive(u.right, func_name),
         .binary => |b| return isRecursive(b.left, func_name) or isRecursive(b.right, func_name),

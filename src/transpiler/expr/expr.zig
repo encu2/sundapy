@@ -9,7 +9,12 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
             .integer => |i| try self.emit("(Dynamic{{ .value = .{{ .i64_type = {s} }} }})", .{i}),
             .float => |f| try self.emit("(Dynamic{{ .value = .{{ .float_type = {s} }} }})", .{f}),
             .string => |s| try self.emit("(Dynamic{{ .value = .{{ .str_type = \"{s}\" }} }})", .{s}),
-            .fstring => |f| {
+            .await_expr => |aw| {
+            try self.emit("(", .{});
+            try self.transpileExpr(aw.value);
+            try self.emit(").awaitResult()", .{});
+        },
+        .fstring => |f| {
                 self.label_counter += 1;
                 const lid = self.label_counter;
                 try self.emit("(blk_{d}: {{\n", .{lid});
@@ -63,7 +68,11 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                             return;
                         }
                     }
-                    try self.emit("{s}", .{escaped});
+                    if (self.is_strict) {
+                        try self.emit("{s}", .{escaped});
+                    } else {
+                        try self.emit("(if (@typeInfo(@TypeOf({s})) == .@\"fn\") dynamic.toDynamicFunc({s}) else {s})", .{escaped, escaped, escaped});
+                    }
                 }
             },
             .list_expr => |l| {
@@ -125,7 +134,7 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 self.label_counter += 1;
                 const lid = self.label_counter;
                 try self.emit("Dynamic{{ .value = .{{ .dict_type = blk_{d}: {{\n", .{lid});
-                try self.emit("    var _d_{d} = @import(\"dynamic\").mapping.Dict.init(alloc) catch unreachable;\n", .{lid});
+                try self.emit("    var _d_{d} = @import(\"datatype/dynamic.zig\").mapping.Dict.init(alloc) catch unreachable;\n", .{lid});
                 for (d.keys.items, 0..) |k, i| {
                     try self.emit("    _d_{d}.put(", .{lid});
                     try self.transpileExpr(k);
