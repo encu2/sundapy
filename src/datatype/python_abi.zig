@@ -39,6 +39,9 @@ var fn_PyBool_Type: *anyopaque = undefined;
 
 extern "c" fn dlopen(path: [*c]const u8, mode: c_int) ?*anyopaque;
 
+var fn_PyList_New: *const fn(isize) callconv(.c) ?*anyopaque = undefined;
+var fn_PyList_SetItem: *const fn(*anyopaque, isize, *anyopaque) callconv(.c) c_int = undefined;
+
 pub const PikaPython = struct {
     pub fn init() !void {
         if (lib == null) {
@@ -53,7 +56,7 @@ pub const PikaPython = struct {
             const builtin = @import("builtin");
             for (names) |name| {
                 if (builtin.os.tag == .linux) {
-                    const RTLD_LAZY = 1;
+                    const RTLD_LAZY = 2; // RTLD_NOW
                     const RTLD_GLOBAL = 256;
                     
                     // Convert to null-terminated C string manually to avoid allocation
@@ -87,6 +90,9 @@ pub const PikaPython = struct {
             fn_PyErr_Print = lib.?.lookup(*const fn() callconv(.c) void, "PyErr_Print") orelse return error.MissingSymbol;
             fn_PyTuple_New = lib.?.lookup(*const fn(isize) callconv(.c) ?*anyopaque, "PyTuple_New") orelse return error.MissingSymbol;
             fn_PyTuple_SetItem = lib.?.lookup(*const fn(*anyopaque, isize, *anyopaque) callconv(.c) c_int, "PyTuple_SetItem") orelse return error.MissingSymbol;
+            
+            fn_PyList_New = lib.?.lookup(*const fn(isize) callconv(.c) ?*anyopaque, "PyList_New") orelse return error.MissingSymbol;
+            fn_PyList_SetItem = lib.?.lookup(*const fn(*anyopaque, isize, *anyopaque) callconv(.c) c_int, "PyList_SetItem") orelse return error.MissingSymbol;
             fn_PyObject_CallObject = lib.?.lookup(*const fn(*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque, "PyObject_CallObject") orelse return error.MissingSymbol;
             fn_PyObject_GetAttrString = lib.?.lookup(*const fn(*anyopaque, [*c]const u8) callconv(.c) ?*anyopaque, "PyObject_GetAttrString") orelse return error.MissingSymbol;
             fn_PyObject_Call = lib.?.lookup(*const fn(*anyopaque, *anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque, "PyObject_Call") orelse return error.MissingSymbol;
@@ -155,6 +161,14 @@ pub const PikaPython = struct {
             .float_type => |f| fn_PyFloat_FromDouble(f),
             .bool_type => |b| fn_PyBool_FromLong(if (b) 1 else 0),
             .py_obj_type => |p| p,
+            .list_type => |l| {
+                const py_list = fn_PyList_New(@intCast(l.items.items.len)) orelse return null;
+                for (l.items.items, 0..) |item, i| {
+                    const py_item = dynamicToPyObject(item) orelse continue;
+                    _ = fn_PyList_SetItem(py_list, @intCast(i), py_item);
+                }
+                return py_list;
+            },
             else => null,
         };
     }
