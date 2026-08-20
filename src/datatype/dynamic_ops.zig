@@ -2,6 +2,13 @@ const std = @import("std");
 const Dynamic = @import("dynamic.zig").Dynamic;
 
 pub fn add(a: Dynamic, b: Dynamic) Dynamic {
+    if (a.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
+    }
+    if (b.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
+    }
+
     switch (a.value) {
         .i64_type => |av| {
             switch (b.value) {
@@ -45,6 +52,13 @@ pub fn add(a: Dynamic, b: Dynamic) Dynamic {
 }
 
 pub fn sub(a: Dynamic, b: Dynamic) Dynamic {
+    if (a.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
+    }
+    if (b.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
+    }
+
     switch (a.value) {
         .i64_type => |av| {
             switch (b.value) {
@@ -67,6 +81,13 @@ pub fn sub(a: Dynamic, b: Dynamic) Dynamic {
 }
 
 pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
+    if (a.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
+    }
+    if (b.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
+    }
+
     switch (a.value) {
         .i64_type => |av| {
             switch (b.value) {
@@ -82,18 +103,18 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
                 else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
             }
         },
-        .numpy_array_type => |av| {
-            var new_arr: std.ArrayList(Dynamic) = .empty;
-            for (av.items.items) |item| {
-                new_arr.append(std.heap.page_allocator, item.mul(b)) catch unreachable;
-            }
-            return Dynamic{ .value = .{ .numpy_array_type = .{ .items = new_arr } } };
-        },
         else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
     }
 }
 
 pub fn div(a: Dynamic, b: Dynamic) Dynamic {
+    if (a.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
+    }
+    if (b.value == .py_obj_type) {
+        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
+    }
+
     switch (a.value) {
         .i64_type => |av| {
             switch (b.value) {

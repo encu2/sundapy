@@ -30,7 +30,6 @@ pub const DynType = enum {
     frozenset_type,
     py_obj_type,
     task_type,
-    numpy_array_type,
 };
 
 pub var global_await_fn: ?*const fn (*anyopaque) Dynamic = null;
@@ -79,9 +78,6 @@ pub const Dynamic = struct {
         // PikaPython / ABI bindings
         py_obj_type: ?*anyopaque,
         task_type: ?*anyopaque,
-        numpy_array_type: struct {
-            items: std.ArrayList(Dynamic),
-        },
     };
 
     pub fn initNone() Dynamic { return .{ .value = .{ .none_type = {} } }; }

@@ -4,6 +4,11 @@ const Dynamic = dynamic.Dynamic;
 
 var lib: ?std.DynLib = null;
 
+var fn_PyNumber_Add: *const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
+var fn_PyNumber_Subtract: *const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
+var fn_PyNumber_Multiply: *const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
+var fn_PyNumber_TrueDivide: *const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
+
 var fn_Py_Initialize: *const fn() callconv(.c) void = undefined;
 var fn_Py_FinalizeEx: *const fn() callconv(.c) c_int = undefined;
 var fn_PyUnicode_DecodeFSDefault: *const fn([*c]const u8) callconv(.c) *anyopaque = undefined;
@@ -68,6 +73,11 @@ pub const PikaPython = struct {
                 }
             }
             if (lib == null) return error.PythonRuntimeNotFound;
+
+                        fn_PyNumber_Add = lib.?.lookup(*const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Add") orelse return error.MissingSymbol;
+            fn_PyNumber_Subtract = lib.?.lookup(*const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Subtract") orelse return error.MissingSymbol;
+            fn_PyNumber_Multiply = lib.?.lookup(*const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Multiply") orelse return error.MissingSymbol;
+            fn_PyNumber_TrueDivide = lib.?.lookup(*const fn(*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_TrueDivide") orelse return error.MissingSymbol;
 
             fn_Py_Initialize = lib.?.lookup(*const fn() callconv(.c) void, "Py_Initialize") orelse return error.MissingSymbol;
             fn_Py_FinalizeEx = lib.?.lookup(*const fn() callconv(.c) c_int, "Py_FinalizeEx") orelse return error.MissingSymbol;
@@ -138,7 +148,7 @@ pub const PikaPython = struct {
         return Dynamic{ .value = .{ .py_obj_type = method_obj } };
     }
 
-    fn dynamicToPyObject(arg: Dynamic) ?*anyopaque {
+    pub fn dynamicToPyObject(arg: Dynamic) ?*anyopaque {
         return switch (arg.value) {
             .str_type => |s| fn_PyUnicode_FromStringAndSize(@ptrCast(s.ptr), @intCast(s.len)),
             .i64_type => |i| fn_PyLong_FromLongLong(i),
@@ -247,4 +257,51 @@ pub const PikaPython = struct {
         }
         return @import("dynamic.zig").Dynamic{ .value = .{ .py_obj_type = item.? } };
     }
+    
+    pub fn doMathReverse(val1: @import("dynamic.zig").Dynamic, obj2: *anyopaque, op: []const u8) !@import("dynamic.zig").Dynamic {
+        const py_val1 = dynamicToPyObject(val1);
+        if (py_val1 == null) return error.TypeError;
+        defer fn_Py_DecRef(py_val1.?);
+
+        var res: ?*anyopaque = null;
+        if (std.mem.eql(u8, op, "+")) {
+            res = fn_PyNumber_Add(py_val1.?, obj2);
+        } else if (std.mem.eql(u8, op, "-")) {
+            res = fn_PyNumber_Subtract(py_val1.?, obj2);
+        } else if (std.mem.eql(u8, op, "*")) {
+            res = fn_PyNumber_Multiply(py_val1.?, obj2);
+        } else if (std.mem.eql(u8, op, "/")) {
+            res = fn_PyNumber_TrueDivide(py_val1.?, obj2);
+        }
+
+        if (res == null) {
+            fn_PyErr_Print();
+            return error.MathError;
+        }
+        return @import("dynamic.zig").Dynamic{ .value = .{ .py_obj_type = res } };
+    }
+
+    pub fn doMath(obj1: *anyopaque, val2: @import("dynamic.zig").Dynamic, op: []const u8) !@import("dynamic.zig").Dynamic {
+        const py_val2 = dynamicToPyObject(val2);
+        if (py_val2 == null) return error.TypeError;
+        defer fn_Py_DecRef(py_val2.?);
+
+        var res: ?*anyopaque = null;
+        if (std.mem.eql(u8, op, "+")) {
+            res = fn_PyNumber_Add(obj1, py_val2.?);
+        } else if (std.mem.eql(u8, op, "-")) {
+            res = fn_PyNumber_Subtract(obj1, py_val2.?);
+        } else if (std.mem.eql(u8, op, "*")) {
+            res = fn_PyNumber_Multiply(obj1, py_val2.?);
+        } else if (std.mem.eql(u8, op, "/")) {
+            res = fn_PyNumber_TrueDivide(obj1, py_val2.?);
+        }
+
+        if (res == null) {
+            fn_PyErr_Print();
+            return error.MathError;
+        }
+        return @import("dynamic.zig").Dynamic{ .value = .{ .py_obj_type = res } };
+    }
+
 };
