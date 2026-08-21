@@ -37,6 +37,8 @@ pub const Node = union(enum) {
     setattr: struct { target: *Node, attr: []const u8, value: *Node },
     subscript: struct { target: *Node, index: *Node },
     subscript_assign: struct { target: *Node, index: *Node, value: *Node },
+    slice: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node },
+    slice_assign: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node, value: *Node },
     ternary_expr: struct { condition: *Node, true_expr: *Node, false_expr: *Node },
     if_stmt: struct { condition: *Node, then_branch: std.ArrayList(*Node), elifs: std.ArrayList(ElifBranch), else_branch: ?std.ArrayList(*Node) },
     while_stmt: struct { condition: *Node, body: std.ArrayList(*Node) },

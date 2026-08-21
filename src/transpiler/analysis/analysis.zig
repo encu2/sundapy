@@ -33,6 +33,8 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
         .setattr => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name),
         .subscript => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name),
         .subscript_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name) or isRecursive(s.value, func_name),
+        .slice => |s| return isRecursive(s.target, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
+        .slice_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
         .yield_stmt => |y| return isRecursive(y.value, func_name),
         .list_expr => |l| {
             for (l.items.items) |item| {
@@ -164,6 +166,19 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
         .subscript_assign => |s| {
             try collectClassFields(allocator, s.target, fields);
             try collectClassFields(allocator, s.index, fields);
+            try collectClassFields(allocator, s.value, fields);
+        },
+        .slice => |s| {
+            try collectClassFields(allocator, s.target, fields);
+            if (s.start) |n| try collectClassFields(allocator, n, fields);
+            if (s.stop) |n| try collectClassFields(allocator, n, fields);
+            if (s.step) |n| try collectClassFields(allocator, n, fields);
+        },
+        .slice_assign => |s| {
+            try collectClassFields(allocator, s.target, fields);
+            if (s.start) |n| try collectClassFields(allocator, n, fields);
+            if (s.stop) |n| try collectClassFields(allocator, n, fields);
+            if (s.step) |n| try collectClassFields(allocator, n, fields);
             try collectClassFields(allocator, s.value, fields);
         },
         .assign => |a| try collectClassFields(allocator, a.value, fields),

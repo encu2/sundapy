@@ -68,3 +68,15 @@ pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
     }
     return error.TypeError;
 }
+
+pub fn getDynamicSlice(self: Dynamic, start: Dynamic, stop: Dynamic, step: Dynamic) !Dynamic {
+    if (self.value == .py_obj_type) {
+        if (self.value.py_obj_type) |obj| {
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            return @import("python_abi.zig").PikaPython.getDynamicSlice(obj, arena.allocator(), start, stop, step) catch return error.KeyError;
+        }
+    }
+    // Minimal mock for slice on lists/strings...
+    return error.TypeError;
+}

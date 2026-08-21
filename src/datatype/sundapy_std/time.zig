@@ -1,38 +1,40 @@
 const std = @import("std");
 const Dynamic = @import("datatype/dynamic.zig").Dynamic;
 
-pub fn sleep(seconds: Dynamic) anyerror!Dynamic {
-    var ts: std.os.linux.timespec = undefined;
-    if (seconds.value == .i64_type) {
-        ts.sec = @intCast(seconds.value.i64_type);
-        ts.nsec = 0;
-    } else if (seconds.value == .float_type) {
-        const ms: u64 = @intFromFloat(seconds.value.float_type * 1_000.0);
-        ts.sec = @intCast(ms / 1000);
-        ts.nsec = @intCast((ms % 1000) * 1_000_000);
-    } else {
-        ts.sec = 0;
-        ts.nsec = 0;
-    }
-    _ = std.os.linux.nanosleep(&ts, null);
-    return Dynamic.initNone();
-}
-
-pub fn builtin_getattr(name: []const u8) Dynamic {
-    if (std.mem.eql(u8, name, "sleep")) {
-        return @import("datatype/dynamic.zig").toDynamicFunc(sleep);
-    }
-    if (std.mem.eql(u8, name, "time_ns")) {
-        return @import("datatype/dynamic.zig").toDynamicFunc(time_ns);
-    }
+pub fn sleep(seconds: anytype) anyerror!Dynamic {
+    const sec = dynamic_to_f64(Dynamic.fromAny(seconds));
+    const ns = @as(u64, @intFromFloat(sec * 1e9));
+    const req = std.os.linux.timespec{
+        .sec = @as(isize, @intCast(ns / 1000000000)),
+        .nsec = @as(isize, @intCast(ns % 1000000000)),
+    };
+    _ = std.os.linux.nanosleep(&req, null);
     return Dynamic.initNone();
 }
 
 pub fn time_ns() anyerror!Dynamic {
     var ts: std.os.linux.timespec = undefined;
-    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &ts);
+    _ = std.os.linux.clock_gettime(.REALTIME, &ts); // 0 is CLOCK_REALTIME
     const ns = @as(i64, ts.sec) * 1000000000 + @as(i64, ts.nsec);
-    return Dynamic{ .value = .{ .i64_type = ns } };
+    return Dynamic.initInt(ns);
+}
+
+fn dynamic_to_f64(d: Dynamic) f64 {
+    return switch (d.value) {
+        .i64_type => |v| @floatFromInt(v),
+        .float_type => |v| v,
+        else => 0.0,
+    };
+}
+
+pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
+    if (std.mem.eql(u8, attr, "sleep")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(sleep);
+    }
+    if (std.mem.eql(u8, attr, "time_ns")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(time_ns);
+    }
+    return error.AttributeError;
 }
 
 pub fn _is_abi() void {}

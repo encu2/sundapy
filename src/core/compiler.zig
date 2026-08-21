@@ -243,11 +243,24 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                                     cwd.createDirPath(io, dir) catch {};
                                 }
                                 
+                                var depth: usize = 0;
+                                for (mod_slash) |c| {
+                                    if (c == '/') depth += 1;
+                                }
+                                var prefix_buf: [128]u8 = undefined;
+                                var prefix_len: usize = 0;
+                                var _d: usize = 0;
+                                while (_d < depth) : (_d += 1) {
+                                    @memcpy(prefix_buf[prefix_len..prefix_len+3], "../");
+                                    prefix_len += 3;
+                                }
+                                const prefix = prefix_buf[0..prefix_len];
+                                
                                 const wrapper_code = try std.fmt.allocPrint(allocator,
                                     \\const std = @import("std");
-                                    \\const dynamic = @import("datatype/dynamic.zig");
+                                    \\const dynamic = @import("{s}datatype/dynamic.zig");
                                     \\const Dynamic = dynamic.Dynamic;
-                                    \\const PikaPython = @import("datatype/python_abi.zig").PikaPython;
+                                    \\const PikaPython = @import("{s}datatype/python_abi.zig").PikaPython;
                                     \\
                                     \\pub const _is_abi = true;
                                     \\pub var _module: Dynamic = undefined;
@@ -261,7 +274,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                                     \\    return _module.getAbiAttribute(attr);
                                     \\}}
                                     \\
-                                , .{mod});
+                                , .{prefix, prefix, mod});
                                 defer allocator.free(wrapper_code);
                                 cwd.writeFile(io, .{ .sub_path = dest_path, .data = wrapper_code }) catch {};
                             } else {

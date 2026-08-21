@@ -253,14 +253,22 @@ pub fn main(ctx: std.process.Init) !void {
         const root_arg = ".cache/src/__entry.zig";
 
 
-// Copy datatype dir to cache so relative imports work
+// Extract embedded datatype dir to cache so relative imports work
         cwd.access(io, ".cache/src/datatype", .{}) catch |err| {
             if (err == error.FileNotFound) {
-                const cp_dt_res = try std.process.run(allocator, io, .{
-                    .argv = &[_][]const u8{"cp", "-r", "src/datatype", ".cache/src/"},
-                });
-                if (cp_dt_res.term != .exited or cp_dt_res.term.exited != 0) {
-                    std.debug.print("Failed to copy datatype!\n{s}\n", .{cp_dt_res.stderr});
+                const embedded = @import("embedded_datatype.zig");
+                inline for (embedded.files) |entry| {
+                    const rel_path = entry[0];
+                    const data = entry[1];
+                    const full_path = std.fmt.allocPrint(allocator, ".cache/src/datatype/{s}", .{rel_path}) catch unreachable;
+                    defer allocator.free(full_path);
+                    
+                    if (std.fs.path.dirname(full_path)) |dir_path| {
+                        cwd.createDirPath(io, dir_path) catch {};
+                    }
+                    cwd.writeFile(io, .{ .sub_path = full_path, .data = data }) catch |write_err| {
+                        std.debug.print("Failed to write embedded file {s}: {any}\n", .{full_path, write_err});
+                    };
                 }
             }
         };

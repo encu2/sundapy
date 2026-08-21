@@ -26,6 +26,7 @@ pub const DynType = enum {
     func_type_1,
     func_type_2,
     func_type_3,
+    func_type_4,
 
     frozenset_type,
     py_obj_type,
@@ -35,6 +36,39 @@ pub const DynType = enum {
 pub var global_await_fn: ?*const fn (*anyopaque) Dynamic = null;
 
 pub const Dynamic = struct {
+
+pub fn fromAny(val: anytype) Dynamic {
+    const T = @TypeOf(val);
+    const info = @typeInfo(T);
+    if (T == Dynamic) return val;
+    if (T == i64 or T == comptime_int) return initInt(@intCast(val));
+    if (T == f64 or T == comptime_float) return initFloat(@floatCast(val));
+    if (T == bool) return initBool(val);
+    if (info == .pointer) {
+        if (info.pointer.size == .slice and info.pointer.child == u8) {
+            return initStr(val);
+        }
+        if (info.pointer.size == .one and @typeInfo(info.pointer.child) == .array and @typeInfo(info.pointer.child).array.child == u8) {
+            return initStr(val);
+        }
+    }
+    if (info == .@"fn") {
+        return toDynamicFunc(val);
+    }
+    if (T == std.ArrayList(Dynamic)) {
+        return initList(val);
+    }
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        var list = std.ArrayList(Dynamic).empty;
+        const alloc = std.heap.page_allocator;
+        inline for (info.@"struct".fields) |field| {
+            list.append(alloc, fromAny(@field(val, field.name))) catch {};
+        }
+        return initList(list);
+    }
+    return initNone();
+}
+
     value: Value,
 
     pub const Value = union(DynType) {
@@ -72,6 +106,7 @@ pub const Dynamic = struct {
         func_type_1: *const fn(Dynamic) anyerror!Dynamic,
         func_type_2: *const fn(Dynamic, Dynamic) anyerror!Dynamic,
         func_type_3: *const fn(Dynamic, Dynamic, Dynamic) anyerror!Dynamic,
+        func_type_4: *const fn(Dynamic, Dynamic, Dynamic, Dynamic) anyerror!Dynamic,
 
         frozenset_type: set_type.FrozenSet,
         
@@ -178,6 +213,10 @@ pub const Dynamic = struct {
         return @import("dynamic_item.zig").getDynamicItem(self, index);
     }
     
+    pub fn getDynamicSlice(self: Dynamic, start: Dynamic, stop: Dynamic, step: Dynamic) !Dynamic {
+        return @import("dynamic_item.zig").getDynamicSlice(self, start, stop, step);
+    }
+    
     pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
         return @import("dynamic_item.zig").setDynamicItem(self, index, value);
     }
@@ -273,6 +312,8 @@ pub const Dynamic = struct {
             return self.value.func_type_1(args[0]);
         } else if (self.value == .func_type_2) {
             return self.value.func_type_2(args[0], args[1]);
+        } else if (self.value == .func_type_4) {
+            return self.value.func_type_4(args[0], args[1], args[2], args[3]);
         } else if (self.value == .func_type_3) {
             return self.value.func_type_3(args[0], args[1], args[2]);
         }
@@ -329,6 +370,9 @@ pub fn toDynamicFunc(f: anytype) Dynamic {
         return Dynamic{ .value = .{ .func_type_2 = f } };
     } else if (params.len == 3) {
         return Dynamic{ .value = .{ .func_type_3 = f } };
+    } else if (params.len == 4) {
+        const f_ptr: *const fn (Dynamic, Dynamic, Dynamic, Dynamic) anyerror!Dynamic = @ptrCast(&f);
+        return Dynamic{ .value = .{ .func_type_4 = f_ptr } };
     } else {
         @compileError("Unsupported function arity for toDynamicFunc");
     }
