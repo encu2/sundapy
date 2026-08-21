@@ -6,7 +6,7 @@ If you are reading this file, you have been assigned to write, debug, or optimiz
 ## 1. What is SundaPy?
 SundaPy is an extreme-performance **Python-to-Zig transpiler** and runtime. It is designed to take standard Python syntax and compile it down into a tiny, standalone, zero-dependency, ultra-fast native binary (often under 500KB) using Zig's `ReleaseSmall` optimization.
 
-**Core Philosophy ("Harga Mati" / Absolute Non-Negotiables):**
+**Core Philosophy (Absolute Non-Negotiables):**
 1. **Speed & Size**: The output binary must be as small and fast as humanly (and artificially) possible.
 2. **Native Python Syntax**: It must parse standard `.py` files.
 3. **Strict Enforcement**: No silent failures in strict mode; absolute type compliance is required.
@@ -28,8 +28,9 @@ If the absolute first line of a file is exactly `#strict`, the transpiler shifts
 - **Behavior**: All variables and function parameters **MUST** have explicit type annotations.
 - **Internal Mapping**: Python primitives are mapped *directly* to Zig/C hardware primitives.
   - `int` -> `i64`
-  - `i8`, `i16`, `i32`, `i64`, `i128` -> Native Zig integers (signed)
-  - `u8`, `u16`, `u32`, `u64` -> Native Zig unsigned integers
+  - `i8`, `i16`, `i32`, `i64`, `i128`, `i256`, `i512`, `i1024` -> Native Zig integers (signed)
+  - `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `u512`, `u1024` -> Native Zig unsigned integers
+  - *Fun Fact*: You can actually use ANY arbitrary bit-width integer (e.g., `i7`, `u33`) because the transpiler passes types directly to Zig's LLVM backend which supports `i1` up to `i65535`!
   - `float` -> `f64`
   - `str` -> `[]const u8` (string slices)
   - `Dynamic` -> Boxed PyObject (used for bridging)
