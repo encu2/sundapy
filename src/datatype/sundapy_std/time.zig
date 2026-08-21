@@ -12,11 +12,16 @@ pub fn sleep(seconds: anytype) anyerror!Dynamic {
     return Dynamic.initNone();
 }
 
-pub fn time_ns() anyerror!Dynamic {
+pub fn time_ns() anyerror!i64 {
     var ts: std.os.linux.timespec = undefined;
     _ = std.os.linux.clock_gettime(.REALTIME, &ts); // 0 is CLOCK_REALTIME
     const ns = @as(i64, ts.sec) * 1000000000 + @as(i64, ts.nsec);
-    return Dynamic.initInt(ns);
+    return ns;
+}
+
+pub fn time_ns_dynamic() anyerror!Dynamic {
+    const val = try time_ns();
+    return Dynamic.initInt(val);
 }
 
 fn dynamic_to_f64(d: Dynamic) f64 {
@@ -32,7 +37,7 @@ pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
         return @import("datatype/dynamic.zig").toDynamicFunc(sleep);
     }
     if (std.mem.eql(u8, attr, "time_ns")) {
-        return @import("datatype/dynamic.zig").toDynamicFunc(time_ns);
+        return @import("datatype/dynamic.zig").toDynamicFunc(time_ns_dynamic);
     }
     return error.AttributeError;
 }
