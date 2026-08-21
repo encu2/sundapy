@@ -27,6 +27,7 @@ pub fn main(ctx: std.process.Init) !void {
     _ = args_iter.next(); // skip executable
 
     var is_build_mode = false;
+    var is_debug = false;
     var is_no_panic = false;
     var is_fetch_mode = false;
     var script_path: ?[]const u8 = null;
@@ -35,6 +36,9 @@ pub fn main(ctx: std.process.Init) !void {
     defer fetch_args.deinit(allocator);
 
     while (args_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--debug")) {
+            is_debug = true;
+        }
         if (std.mem.eql(u8, arg, "--build")) {
             is_build_mode = true;
         }
@@ -278,13 +282,15 @@ pub fn main(ctx: std.process.Init) !void {
         
         try zig_cmd.appendSlice(allocator, &[_][]const u8{
             zig_bin, "build-exe", root_arg,
-            "-O", "ReleaseSmall",
+            "-O", if (is_debug) "ReleaseSafe" else "ReleaseSmall",
         });
 
         try zig_cmd.appendSlice(allocator, &[_][]const u8{"-lc"});
         
+        if (!is_debug) {
+            try zig_cmd.appendSlice(allocator, &[_][]const u8{ "-fstrip" });
+        }
         try zig_cmd.appendSlice(allocator, &[_][]const u8{
-            "-fstrip",
             "--cache-dir", ".cache/zig_cache",
             "--global-cache-dir", ".cache/zig_global_cache",
             emit_bin_arg,
@@ -301,9 +307,11 @@ pub fn main(ctx: std.process.Init) !void {
         }
 
         // Workaround for Zig 0.16.0 cache bug ignoring -fstrip: explicitly strip the binary
-        _ = std.process.run(allocator, io, .{
-            .argv = &[_][]const u8{ "strip", cached_bin_path },
-        }) catch {};
+        if (!is_debug) {
+            _ = std.process.run(allocator, io, .{
+                .argv = &[_][]const u8{ "strip", cached_bin_path },
+            }) catch {};
+        }
 
         // Update Hash if successfully compiled
         try cache.updateCacheHash(io, final_script, current_hash);
