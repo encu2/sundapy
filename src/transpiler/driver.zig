@@ -124,6 +124,10 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     // For python-like scripts, top level statements must be in __sundapy_module_init
     try self.emit("pub fn __sundapy_module_init() !void {{\n", .{});
     self.indent_level += 1;
+    if (self.is_strict) {
+        try self.emitIndent();
+        try self.emit("@setRuntimeSafety(true);\n", .{});
+    }
     try self.emitIndent();
     try self.emit("alloc = std.heap.page_allocator;\n", .{});
 
