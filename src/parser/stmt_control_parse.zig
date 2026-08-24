@@ -74,7 +74,7 @@ pub fn parseMatchStmt(self: *Parser) anyerror!*ast.Node {
             const block = try self.parseBlock();
             cases.append(self.allocator, .{ .pattern = pattern, .body = block }) catch unreachable;
         } else {
-            std.debug.print("ParseError: expected 'case' inside match block, got {any}\n", .{self.current.type});
+            std.debug.print("ParseError: expected 'case' inside match block, got {any} ('{s}') on line {d}\n", .{self.current.type, self.current.lexeme, self.current.line});
             return error.ParseError;
         }
     }

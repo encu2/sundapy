@@ -117,6 +117,7 @@ const TokenType = lexer.TokenType;
                     type_ann = "None";
                     self.advance();
                 } else {
+                    std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
                     return error.ParseError; // failing here
                 }
             }
@@ -135,6 +136,7 @@ const TokenType = lexer.TokenType;
             if (self.match(.KeywordDef)) {
                 return try @import("stmt_decl.zig").parseDefStmt(self, true);
             }
+            std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
             return error.ParseError;
         }
         if (self.match(.KeywordClass)) {

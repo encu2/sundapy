@@ -101,7 +101,7 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             node.* = .{ .dict_expr = .{ .keys = keys, .values = values } };
         },
         else => {
-            std.debug.print("ParseError in parsePrefix. Token: {any} '{s}'\n", .{self.current.type, self.current.lexeme});
+            std.debug.print("ParseError on line {d} (parsePrefix): Token: {any} '{s}'\n", .{self.current.line, self.current.type, self.current.lexeme});
             return error.ParseError;
         }
     }

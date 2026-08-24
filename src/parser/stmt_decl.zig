@@ -19,6 +19,7 @@ pub fn parseDefStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
                 p_type = "None";
                 self.advance();
             } else {
+                std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
                 return error.ParseError;
             }
         }
