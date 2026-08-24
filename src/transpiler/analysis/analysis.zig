@@ -14,7 +14,7 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             if (r.value) |v| return isRecursive(v, func_name);
             return false;
         },
-        .if_stmt, .while_stmt, .for_stmt, .match_stmt => return false,
+        .if_stmt, .while_stmt, .for_stmt, .match_stmt, .with_stmt => return false,
         .call => |c| {
             if (isRecursive(c.callee, func_name)) return true;
             for (c.args.items) |arg| {
@@ -136,6 +136,10 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
                 try collectClassFields(allocator, case_branch.pattern, fields);
                 for (case_branch.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
             }
+        },
+        .with_stmt => |w| {
+            try collectClassFields(allocator, w.context_expr, fields);
+            for (w.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
         },
         .for_stmt => |f| {
             try collectClassFields(allocator, f.iterable, fields);

@@ -87,7 +87,10 @@ const TokenType = lexer.TokenType;
             return try @import("stmt_control_parse.zig").parseWhileStmt(self);
         }
         if (self.match(.KeywordFor)) {
-            return try @import("stmt_control_parse.zig").parseForStmt(self);
+            return try @import("stmt_control_parse.zig").parseForStmt(self, false);
+        }
+        if (self.match(.KeywordWith)) {
+            return try @import("stmt_control_parse.zig").parseWithStmt(self, false);
         }
         if (self.match(.DirectiveStrict)) {
             try self.consumeStmtEnd();
@@ -129,18 +132,38 @@ const TokenType = lexer.TokenType;
             return node;
         }
 
+        var decorators: std.ArrayList(*ast.Node) = .empty;
+        while (self.match(.At)) {
+            const dec = try self.parseExpr(.none);
+            try decorators.append(self.allocator, dec);
+            try self.consumeStmtEnd();
+            while (self.match(.Newline)) {}
+        }
+
         if (self.match(.KeywordDef)) {
-            return try @import("stmt_decl.zig").parseDefStmt(self, false);
+            return try @import("stmt_decl.zig").parseDefStmt(self, false, decorators);
         }
         if (self.match(.KeywordAsync)) {
+            // async with, async for, async def
             if (self.match(.KeywordDef)) {
-                return try @import("stmt_decl.zig").parseDefStmt(self, true);
+                return try @import("stmt_decl.zig").parseDefStmt(self, true, decorators);
+            } else if (self.match(.KeywordWith)) {
+                if (decorators.items.len > 0) return error.ParseError;
+                return try @import("stmt_control_parse.zig").parseWithStmt(self, true);
+            } else if (self.match(.KeywordFor)) {
+                if (decorators.items.len > 0) return error.ParseError;
+                return try @import("stmt_control_parse.zig").parseForStmt(self, true);
             }
             std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
             return error.ParseError;
         }
         if (self.match(.KeywordClass)) {
-            return try @import("stmt_decl.zig").parseClassStmt(self);
+            return try @import("stmt_decl.zig").parseClassStmt(self, decorators);
+        }
+        
+        if (decorators.items.len > 0) {
+            std.debug.print("ParseError on line {d}: unexpected decorator before {any}\n", .{self.current.line, self.current.type});
+            return error.ParseError;
         }
         if (self.match(.KeywordImport)) {
             const name_ptr = self.current.lexeme.ptr;

@@ -2,7 +2,7 @@ const std = @import("std");
 const ast = @import("../core/ast.zig");
 const Parser = @import("parser.zig").Parser;
 
-pub fn parseDefStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
+pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*ast.Node)) anyerror!*ast.Node {
     const name = self.current.lexeme;
     try self.expect(.Identifier);
     try self.expect(.LParen);
@@ -23,8 +23,12 @@ pub fn parseDefStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
                 return error.ParseError;
             }
         }
-        params.append(self.allocator, .{ .name = p_name, .type_ann = p_type }) catch unreachable;
-        if (self.match(.Comma)) {}
+        var default_val: ?*ast.Node = null;
+        if (self.match(.Eq)) {
+            default_val = try self.parseExpr(.none);
+        }
+        params.append(self.allocator, .{ .name = p_name, .type_ann = p_type, .default_value = default_val }) catch unreachable;
+        _ = self.match(.Comma);
     }
     try self.expect(.RParen);
     var ret_type: ?[]const u8 = null;
@@ -47,11 +51,11 @@ pub fn parseDefStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
         is_strict = true;
     }
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .def_stmt = .{ .name = name, .params = params, .return_type = ret_type, .body = block, .is_strict = is_strict, .is_async = is_async } };
+    node.* = .{ .def_stmt = .{ .name = name, .params = params, .return_type = ret_type, .body = block, .is_strict = is_strict, .is_async = is_async, .decorators = decorators } };
     return node;
 }
 
-pub fn parseClassStmt(self: *Parser) anyerror!*ast.Node {
+pub fn parseClassStmt(self: *Parser, decorators: std.ArrayList(*ast.Node)) anyerror!*ast.Node {
     const name = self.current.lexeme;
     try self.expect(.Identifier);
     var base_class: ?[]const u8 = null;
@@ -63,6 +67,6 @@ pub fn parseClassStmt(self: *Parser) anyerror!*ast.Node {
     try self.expect(.Colon);
     const block = try self.parseBlock();
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .class_stmt = .{ .name = name, .base_class = base_class, .methods = block } };
+    node.* = .{ .class_stmt = .{ .name = name, .base_class = base_class, .methods = block, .decorators = decorators } };
     return node;
 }

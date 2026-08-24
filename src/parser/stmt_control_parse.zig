@@ -93,9 +93,18 @@ pub fn parseWhileStmt(self: *Parser) anyerror!*ast.Node {
     return node;
 }
 
-pub fn parseForStmt(self: *Parser) anyerror!*ast.Node {
-    const iter_name = self.current.lexeme;
+pub fn parseForStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
+    _ = is_async;
+    const start_pos = self.current.lexeme.ptr;
+    var len: usize = self.current.lexeme.len;
     try self.expect(.Identifier);
+    while (self.match(.Comma)) {
+        if (self.current.type == .Identifier) {
+            len = @intFromPtr(self.current.lexeme.ptr) + self.current.lexeme.len - @intFromPtr(start_pos);
+            self.advance();
+        }
+    }
+    const iter_name = start_pos[0..len];
     try self.expect(.KeywordIn);
     const iter = try self.parseExpr(.none);
     try self.expect(.Colon);
@@ -104,3 +113,19 @@ pub fn parseForStmt(self: *Parser) anyerror!*ast.Node {
     node.* = .{ .for_stmt = .{ .iterator = iter_name, .iterable = iter, .body = block } };
     return node;
 }
+
+pub fn parseWithStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
+    const context_expr = try self.parseExpr(.none);
+    var as_name: ?[]const u8 = null;
+    if (self.match(.KeywordAs)) {
+        as_name = self.current.lexeme;
+        try self.expect(.Identifier);
+    }
+    try self.expect(.Colon);
+    const body = try self.parseBlock();
+    
+    const node = try self.allocator.create(ast.Node);
+    node.* = .{ .with_stmt = .{ .context_expr = context_expr, .as_name = as_name, .body = body, .is_async = is_async } };
+    return node;
+}
+

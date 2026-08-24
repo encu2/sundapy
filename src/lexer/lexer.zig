@@ -11,6 +11,7 @@ pub const Lexer = struct {
     line: usize,
     indents: std.ArrayList(usize),
     pending_tokens: std.ArrayList(Token),
+    paren_level: usize,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Lexer {
         var indents: std.ArrayList(usize) = .empty;
@@ -22,6 +23,7 @@ pub const Lexer = struct {
             .line = 1,
             .indents = indents,
             .pending_tokens = .empty,
+            .paren_level = 0,
         };
     }
 
@@ -49,6 +51,21 @@ pub const Lexer = struct {
         while (self.pos < self.source.len) {
             const c = self.peek();
             
+            if (c == '\\') {
+                _ = self.advance();
+                if (self.peek() == '\n') {
+                    _ = self.advance();
+                    self.line += 1;
+                } else if (self.peek() == '\r') {
+                    _ = self.advance();
+                    if (self.peek() == '\n') {
+                        _ = self.advance();
+                    }
+                    self.line += 1;
+                }
+                continue;
+            }
+
             if (c == ' ' or c == '\t') {
                 _ = self.advance();
                 continue;
@@ -62,6 +79,10 @@ pub const Lexer = struct {
             if (c == '\n') {
                 _ = self.advance();
                 self.line += 1;
+                
+                if (self.paren_level > 0) {
+                    continue;
+                }
                 
                 var indent: usize = 0;
                 while (self.peek() == ' ' or self.peek() == '\t') {
@@ -248,12 +269,13 @@ pub const Lexer = struct {
                 ';' => return .{ .type = .Semicolon, .lexeme = self.source[start..self.pos], .line = self.line },
                 ',' => return .{ .type = .Comma, .lexeme = self.source[start..self.pos], .line = self.line },
                 '.' => return .{ .type = .Dot, .lexeme = self.source[start..self.pos], .line = self.line },
-                '(' => return .{ .type = .LParen, .lexeme = self.source[start..self.pos], .line = self.line },
-                ')' => return .{ .type = .RParen, .lexeme = self.source[start..self.pos], .line = self.line },
-                '[' => return .{ .type = .LBracket, .lexeme = self.source[start..self.pos], .line = self.line },
-                ']' => return .{ .type = .RBracket, .lexeme = self.source[start..self.pos], .line = self.line },
-                '{' => return .{ .type = .LBrace, .lexeme = self.source[start..self.pos], .line = self.line },
-                '}' => return .{ .type = .RBrace, .lexeme = self.source[start..self.pos], .line = self.line },
+                '@' => return .{ .type = .At, .lexeme = self.source[start..self.pos], .line = self.line },
+                '(' => { self.paren_level += 1; return .{ .type = .LParen, .lexeme = self.source[start..self.pos], .line = self.line }; },
+                ')' => { if (self.paren_level > 0) self.paren_level -= 1; return .{ .type = .RParen, .lexeme = self.source[start..self.pos], .line = self.line }; },
+                '[' => { self.paren_level += 1; return .{ .type = .LBracket, .lexeme = self.source[start..self.pos], .line = self.line }; },
+                ']' => { if (self.paren_level > 0) self.paren_level -= 1; return .{ .type = .RBracket, .lexeme = self.source[start..self.pos], .line = self.line }; },
+                '{' => { self.paren_level += 1; return .{ .type = .LBrace, .lexeme = self.source[start..self.pos], .line = self.line }; },
+                '}' => { if (self.paren_level > 0) self.paren_level -= 1; return .{ .type = .RBrace, .lexeme = self.source[start..self.pos], .line = self.line }; },
                 else => {
                     return .{ .type = .Identifier, .lexeme = self.source[start..self.pos], .line = self.line };
                 },

@@ -184,3 +184,47 @@ pub fn transpileForStmt(self: *Transpiler, f: anytype, declared_vars: *std.Strin
         try self.emit("}}\n", .{});
     }
 
+
+pub fn transpileWithStmt(self: *Transpiler, w: anytype) anyerror!void {
+    // Basic dynamic transpile for with_stmt
+    const ctx_var = try std.fmt.allocPrint(self.allocator, "__with_ctx_{d}", .{self.temp_counter});
+    self.temp_counter += 1;
+    try self.emit("var {s} = ", .{ctx_var});
+    try self.transpileExpr(w.context_expr);
+    try self.emit(";\n", .{});
+    
+    // Call __enter__
+    const enter_res = try std.fmt.allocPrint(self.allocator, "__with_res_{d}", .{self.temp_counter});
+    self.temp_counter += 1;
+    if (w.is_async) {
+        try self.emit("var {s} = try (try {s}.builtin_getattr(\"__aenter__\")).builtin_call(dynamic.None);\n", .{enter_res, ctx_var});
+    } else {
+        try self.emit("var {s} = try (try {s}.builtin_getattr(\"__enter__\")).builtin_call(dynamic.None);\n", .{enter_res, ctx_var});
+    }
+    
+    if (w.as_name) |name| {
+        try self.emit("var {s} = {s};\n", .{name, enter_res});
+    }
+    
+    // Body
+    for (w.body.items) |stmt| {
+        try self.transpileStmt(stmt);
+    }
+    
+    // Call __exit__
+    if (w.is_async) {
+        try self.emit("_ = try (try {s}.builtin_getattr(\"__aexit__\")).builtin_call(dynamic.None);\n", .{ctx_var});
+    } else {
+        try self.emit("_ = try (try {s}.builtin_getattr(\"__exit__\")).builtin_call(dynamic.None);\n", .{ctx_var});
+    }
+}
+
+pub fn transpileYieldStmt(self: *Transpiler, y: anytype) anyerror!void {
+    try self.emit("_ = ", .{});
+    if (y.value) |v| {
+        try self.transpileExpr(v);
+    } else {
+        try self.emit("dynamic.None", .{});
+    }
+    try self.emit("; // NOTE: yield not fully supported natively\n", .{});
+}

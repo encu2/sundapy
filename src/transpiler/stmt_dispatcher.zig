@@ -65,6 +65,8 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
             try self.emit(")", .{});
             try self.emit(".awaitResult();\n", .{});
         },
+        .yield_stmt => |y| try @import("stmt/stmt_misc.zig").transpileYield(self, y),
+        .with_stmt => |w| try @import("stmt/stmt_control.zig").transpileWithStmt(self, w, declared_vars, strict_funcs),
         else => {
             try self.emit("// Unhandled stmt type: {any}\n", .{stmt.*});
         },

@@ -5,7 +5,7 @@ const Parser = @import("parser.zig").Parser;
 pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
     const node = try self.allocator.create(ast.Node);
     switch (self.current.type) {
-        .Minus, .KeywordNot, .Tilde, .Plus => {
+        .Minus, .KeywordNot, .Tilde, .Plus, .Star, .StarStar => {
             const op = self.current.lexeme;
             self.advance();
             const right = try parsePrefix(self);
@@ -56,6 +56,11 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 return node;
             }
             const first_expr = try self.parseExpr(.none);
+            var is_async_comp = false;
+            if (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor) {
+                is_async_comp = true;
+                self.advance(); // consume async
+            }
             if (self.current.type == .KeywordFor) {
                 self.advance();
                 const target = self.current.lexeme;
@@ -68,7 +73,7 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                     condition = try self.parseExpr(.none);
                 }
                 try self.expect(.RBracket);
-                node.* = .{ .list_comp = .{ .expression = first_expr, .target = target, .iterable = iterable, .condition = condition } };
+                node.* = .{ .list_comp = .{ .expression = first_expr, .target = target, .iterable = iterable, .condition = condition, .is_async = is_async_comp } };
             } else {
                 var items: std.ArrayList(*ast.Node) = .empty;
                 items.append(self.allocator, first_expr) catch unreachable;
@@ -83,9 +88,32 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
         },
         .LParen => {
             self.advance();
-            const inner = try self.parseExpr(.none);
-            try self.expect(.RParen);
-            return inner;
+            var items: std.ArrayList(*ast.Node) = .empty;
+            var is_tuple = false;
+            
+            if (self.current.type == .RParen) {
+                // Empty tuple ()
+                self.advance();
+                is_tuple = true;
+            } else {
+                const first = try self.parseExpr(.none);
+                items.append(self.allocator, first) catch unreachable;
+                
+                if (self.match(.Comma)) {
+                    is_tuple = true;
+                    while (self.current.type != .RParen) {
+                        items.append(self.allocator, try self.parseExpr(.none)) catch unreachable;
+                        if (self.match(.Comma)) {}
+                    }
+                }
+                try self.expect(.RParen);
+            }
+            
+            if (is_tuple) {
+                node.* = .{ .list_expr = .{ .items = items } };
+                return node;
+            }
+            return items.items[0];
         },
         .LBrace => {
             self.advance();
