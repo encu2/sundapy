@@ -79,6 +79,12 @@ pub fn printValue(self: Dynamic) void {
                 std.debug.print("None", .{});
             }
         },
+        .gpu_buffer_type => |g| {
+            @import("../gpu_types.zig").printBuffer(g);
+        },
+        .gpu_kernel_type => |k| {
+            std.debug.print("<gpu.Kernel {*}>", .{k});
+        },
         else => std.debug.print("[NotDynamic: {any}]", .{self.value}),
     }
 }

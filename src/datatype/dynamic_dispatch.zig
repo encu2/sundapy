@@ -51,6 +51,8 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
         }
 
         return Dynamic.initNone();
+    } else if (self.value == .gpu_buffer_type) {
+        return @import("gpu_types.zig").bufferGetAttribute(self.value.gpu_buffer_type, attr);
     }
     return Dynamic{ .value = .{ .none_type = {} } };
 }
@@ -262,6 +264,10 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
         return self.value.func_type_4(a0, a1, a2, a3);
     } else if (self.value == .func_type_slice) {
         return self.value.func_type_slice(alloc, args, kwargs);
+    } else if (self.value == .gpu_kernel_type) {
+        const bound: *const @import("gpu_types.zig").BoundKernel = @ptrCast(@alignCast(self.value.gpu_kernel_type));
+        var mut_bound = bound.*;
+        return mut_bound.call(alloc, args);
     } else if (self.value == .py_obj_type) {
         return try @import("python_abi.zig").PikaPython.callObject(self.value.py_obj_type.?, alloc, args, kwargs);
     } else if (self.value == .str_type) {

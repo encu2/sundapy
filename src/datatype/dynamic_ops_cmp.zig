@@ -127,6 +127,19 @@ pub fn le(a: Dynamic, b: Dynamic) Dynamic {
                 else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
             }
         },
+        .float_type => |av| {
+            switch (b.value) {
+                .i64_type => |bv| return Dynamic.initBool(av <= @as(f64, @floatFromInt(bv))),
+                .float_type => |bv| return Dynamic.initBool(av <= bv),
+                else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
+            }
+        },
+        .str_type => |av| {
+            switch (b.value) {
+                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, av, bv) or std.mem.eql(u8, av, bv)),
+                else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
+            }
+        },
         else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
     }
 }
@@ -137,6 +150,19 @@ pub fn ge(a: Dynamic, b: Dynamic) Dynamic {
             switch (b.value) {
                 .i64_type => |bv| return Dynamic.initBool(av >= bv),
                 .float_type => |bv| return Dynamic.initBool(@as(f64, @floatFromInt(av)) >= bv),
+                else => std.debug.panic("TypeError: '>=' not supported between instances\n", .{}),
+            }
+        },
+        .float_type => |av| {
+            switch (b.value) {
+                .i64_type => |bv| return Dynamic.initBool(av >= @as(f64, @floatFromInt(bv))),
+                .float_type => |bv| return Dynamic.initBool(av >= bv),
+                else => std.debug.panic("TypeError: '>=' not supported between instances\n", .{}),
+            }
+        },
+        .str_type => |av| {
+            switch (b.value) {
+                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, bv, av) or std.mem.eql(u8, av, bv)),
                 else => std.debug.panic("TypeError: '>=' not supported between instances\n", .{}),
             }
         },

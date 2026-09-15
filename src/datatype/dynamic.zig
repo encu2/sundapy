@@ -32,6 +32,8 @@ pub const DynType = enum {
     frozenset_type,
     py_obj_type,
     task_type,
+    gpu_buffer_type,
+    gpu_kernel_type,
 };
 
 pub var global_await_fn: ?*const fn (*anyopaque) Dynamic = null;
@@ -115,7 +117,16 @@ pub fn fromAny(val: anytype) Dynamic {
         // PikaPython / ABI bindings
         py_obj_type: ?*anyopaque,
         task_type: ?*anyopaque,
+        gpu_buffer_type: *anyopaque,
+        gpu_kernel_type: *anyopaque,
     };
+
+    pub fn isFunction(self: Dynamic) bool {
+        return switch (self.value) {
+            .func_type_0, .func_type_1, .func_type_2, .func_type_3, .func_type_4, .func_type_slice, .gpu_kernel_type => true,
+            else => false,
+        };
+    }
 
     pub fn initNone() Dynamic { return .{ .value = .{ .none_type = {} } }; }
     pub fn initBool(val: bool) Dynamic { return .{ .value = .{ .bool_type = val } }; }

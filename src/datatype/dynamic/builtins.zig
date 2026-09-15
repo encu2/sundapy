@@ -6,7 +6,7 @@ const mapping = @import("../mapping.zig");
 
     pub fn builtin_len(self: Dynamic) Dynamic {
         switch (self.value) {
-            .str_type, .list_type, .tuple_type, .range_type, .py_obj_type => return Dynamic.initInt(@as(i64, @intCast(self.len()))),
+            .str_type, .list_type, .tuple_type, .range_type, .py_obj_type, .gpu_buffer_type => return Dynamic.initInt(@as(i64, @intCast(self.len()))),
             .dict_type => |d| return Dynamic.initInt(@as(i64, @intCast(d.count()))),
             else => std.debug.panic("TypeError: object of type has no len()\n", .{}),
         }
@@ -26,6 +26,8 @@ const mapping = @import("../mapping.zig");
             .bytes_type, .bytearray_type => Dynamic.initStr("bytes"),
             .set_type, .frozenset_type => Dynamic.initStr("set"),
             .none_type => Dynamic.initStr("NoneType"),
+            .gpu_buffer_type => Dynamic.initStr("gpu.Buffer"),
+            .gpu_kernel_type => Dynamic.initStr("gpu.Kernel"),
             else => Dynamic.initStr(@tagName(self.value)),
         };
     }

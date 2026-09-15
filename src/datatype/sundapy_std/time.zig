@@ -32,9 +32,18 @@ fn dynamic_to_f64(d: Dynamic) f64 {
     };
 }
 
+pub fn time() anyerror!Dynamic {
+    const ns = try time_ns();
+    const sec = @as(f64, @floatFromInt(ns)) / 1e9;
+    return Dynamic.initFloat(sec);
+}
+
 pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "sleep")) {
         return @import("datatype/dynamic.zig").toDynamicFunc(sleep);
+    }
+    if (std.mem.eql(u8, attr, "time")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(time);
     }
     if (std.mem.eql(u8, attr, "time_ns")) {
         return @import("datatype/dynamic.zig").toDynamicFunc(time_ns_dynamic);

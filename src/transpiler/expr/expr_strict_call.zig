@@ -3,6 +3,7 @@ const ast = @import("../../core/ast.zig");
 const Transpiler = @import("../transpiler.zig").Transpiler;
 
 pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
+    var handled = false;
     if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "range")) {
         if (c.args.items.len == 1) {
             try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = 0, .stop = @intCast(dynamic.Dynamic.fromAny(", .{});
@@ -23,14 +24,17 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             try self.transpileExprStrict(c.args.items[2]);
             try self.emit(").value.i64_type) }} }} }}", .{});
         }
+        handled = true;
     } else if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "len")) {
         try self.emit("(", .{});
         try self.transpileExpr(c.args.items[0]);
         try self.emit(").builtin_len()", .{});
+        handled = true;
     } else if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "type")) {
         try self.emit("(", .{});
         try self.transpileExpr(c.args.items[0]);
         try self.emit(").builtin_type()", .{});
+        handled = true;
     } else if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "isinstance")) {
         try self.emit("(", .{});
         try self.transpileExpr(c.args.items[0]);
@@ -39,6 +43,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
         } else {
             try self.emit(").builtin_isinstance(\"\")", .{});
         }
+        handled = true;
     } else if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "input")) {
         try self.emit("Dynamic.builtin_input(alloc", .{});
         if (c.args.items.len > 0) {
@@ -48,6 +53,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             try self.emit(", Dynamic.initNone()", .{});
         }
         try self.emit(")", .{});
+        handled = true;
     } else if (c.callee.* == .identifier) {
         const name = c.callee.identifier.name;
         const builtins_0_alloc = [_][]const u8{"bytearray", "bytes", "dict", "frozenset", "list", "set", "tuple", "object", "super", "breakpoint"};
@@ -55,8 +61,6 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
         const builtins_1 = [_][]const u8{"len", "type", "int", "float", "bool", "min", "max", "sum", "abs", "all", "any", "callable", "enumerate", "hash", "id", "ord", "reversed", "round", "sorted"};
         const builtins_2 = [_][]const u8{"divmod", "pow", "format", "issubclass"};
         const builtins_multi = [_][]const u8{"zip", "open", "complex", "dir", "getattr", "setattr", "hasattr", "delattr", "filter", "map", "iter", "next", "help", "memoryview", "slice", "vars", "__import__"};
-        
-        var handled = false;
         
         for (builtins_0_alloc) |b| {
             if (std.mem.eql(u8, name, b)) {
@@ -248,8 +252,9 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 handled = true;
             }
         }
-        
-        if (!handled) {
+    }
+    
+    if (!handled) {
             var is_strict_func = false;
             if (c.callee.* == .identifier) {
                 if (self.strict_funcs) |sf| {
@@ -363,5 +368,4 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             }
 
         }
-    }
 }
