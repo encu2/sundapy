@@ -59,7 +59,7 @@ pub fn main(ctx: std.process.Init) !void {
     }
 
     if (is_fetch_mode) {
-        var threaded = std.Io.Threaded.init(allocator, .{});
+        var threaded = std.Io.Threaded.init(allocator, .{ .environ = ctx.minimal.environ });
         defer threaded.deinit();
         const io = threaded.io();
 
@@ -93,7 +93,7 @@ pub fn main(ctx: std.process.Init) !void {
     };
 
     // 2. Initialize Io and Cache Manager
-    var threaded = std.Io.Threaded.init(allocator, .{});
+    var threaded = std.Io.Threaded.init(allocator, .{ .environ = ctx.minimal.environ });
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -346,19 +346,17 @@ pub fn main(ctx: std.process.Init) !void {
         }
         std.debug.print("BUILD MODE: Compilation complete. Binary '{s}' has been generated in current directory.\n", .{dest_path});
     } else {
-        // Run mode: Execute silently
+        // Run mode: Execute with inherited terminal IO
         const run_cmd = &[_][]const u8{cached_bin_path};
-        const run_res = try std.process.run(allocator, io, .{
+        var child = try std.process.spawn(io, .{
             .argv = run_cmd,
+            .stdin = .inherit,
+            .stdout = .inherit,
+            .stderr = .inherit,
         });
-        
-        if (run_res.term != .exited or run_res.term.exited != 0) {
-            std.debug.print("Execution failed: {any}\nstdout: {s}\nstderr: {s}\n", .{run_res.term, run_res.stdout, run_res.stderr});
+        const term = try child.wait(io);
+        if (term != .exited or term.exited != 0) {
             std.process.exit(1);
-        } else {
-            // Print output directly
-            if (run_res.stdout.len > 0) std.debug.print("{s}", .{run_res.stdout});
-            if (run_res.stderr.len > 0) std.debug.print("{s}", .{run_res.stderr});
         }
     }
 }
