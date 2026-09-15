@@ -178,7 +178,7 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
             if (idx < m.args.items.len - 1) try self.emit(", ", .{});
         }
         try self.emit(");\n        }}\n", .{});
-        try self.emit("    }} else {{\n", .{});
+        try self.emit("    }} else if (@hasDecl(_target_{d}, \"builtin_getattr\")) {{\n", .{lid});
         try self.emit("        var _args_arr = [_]Dynamic{{", .{});
         for (m.args.items, 0..) |arg, idx| {
             if (self.is_strict) {
@@ -204,13 +204,17 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         } else {
             try self.emit("        break :blk_{d} _target_{d}.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, null);\n", .{lid, lid, m.method});
         }
+        try self.emit("    }} else {{\n", .{});
+        try self.emit("        break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
         try self.emit("    }}\n", .{});
         try self.emit("}}))", .{});
+
         
         if (self.try_depth > 0) {
             self.label_counter += 1;
-            try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+            try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
         }
+
         return;
     }
 
@@ -270,7 +274,7 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         
         if (self.try_depth > 0) {
             self.label_counter += 1;
-            try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+            try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
         }
         return;
     }
@@ -309,6 +313,7 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
     try self.emit(")", .{});
     if (self.try_depth > 0) {
         self.label_counter += 1;
-        try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+        try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
     }
 }
+

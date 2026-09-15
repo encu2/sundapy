@@ -66,7 +66,7 @@ pub fn transpileRaise(self: *Transpiler, r: anytype) !void {
     if (r.value) |v| {
         if (self.is_strict) {
             if (self.try_depth > 0) {
-                try self.emit("break :blk_{d} error.Exception; // ", .{self.try_depth});
+                try self.emit("break :try_blk_{d} error.Exception; // ", .{self.try_depth});
             } else {
                 try self.emit("return error.Exception; // ", .{});
             }
@@ -74,7 +74,7 @@ pub fn transpileRaise(self: *Transpiler, r: anytype) !void {
             try self.emit("\n", .{});
         } else {
             if (self.try_depth > 0) {
-                try self.emit("break :blk_{d} error.Exception; // ", .{self.try_depth});
+                try self.emit("break :try_blk_{d} error.Exception; // ", .{self.try_depth});
             } else {
                 try self.emit("return error.Exception; // ", .{});
             }
@@ -83,11 +83,12 @@ pub fn transpileRaise(self: *Transpiler, r: anytype) !void {
         }
     } else {
         if (self.try_depth > 0) {
-            try self.emit("break :blk_{d} error.Exception;\n", .{self.try_depth});
+            try self.emit("break :try_blk_{d} error.Exception;\n", .{self.try_depth});
         } else {
             try self.emit("return error.Exception;\n", .{});
         }
     }
+
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}}\n", .{});

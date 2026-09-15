@@ -38,6 +38,8 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
             std.mem.eql(u8, attr, "update") or 
             std.mem.eql(u8, attr, "items") or 
             std.mem.eql(u8, attr, "keys") or 
+            std.mem.eql(u8, attr, "get") or 
+            std.mem.eql(u8, attr, "pop") or 
             std.mem.eql(u8, attr, "read") or 
             std.mem.eql(u8, attr, "write") or 
             std.mem.eql(u8, attr, "close") or 
@@ -47,6 +49,7 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
             std.mem.eql(u8, attr, "__exit__")) {
             return d;
         }
+
         return Dynamic.initNone();
     }
     return Dynamic{ .value = .{ .none_type = {} } };
@@ -85,7 +88,42 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
                 try list.append(alloc, Dynamic.initStr(k.*));
             }
             return Dynamic.initList(list);
+        } else if (std.mem.eql(u8, attr, "items")) {
+            self.value.dict_type.lock();
+            defer self.value.dict_type.unlock();
+            var list = std.ArrayList(Dynamic).empty;
+            var it = self.value.dict_type.map.iterator();
+            while (it.next()) |entry| {
+                const pair = [_]Dynamic{ Dynamic.initStr(entry.key_ptr.*), entry.value_ptr.* };
+                const tuple = try @import("sequence/list.zig").Tuple.init(alloc, &pair);
+                try list.append(alloc, Dynamic{ .value = .{ .tuple_type = tuple } });
+            }
+            return Dynamic.initList(list);
+
+        } else if (std.mem.eql(u8, attr, "get")) {
+            if (args.len > 0) {
+                if (self.value.dict_type.get(args[0])) |val| {
+                    return val;
+                }
+            }
+            if (args.len > 1) {
+                return args[1];
+            }
+            return Dynamic.initNone();
+        } else if (std.mem.eql(u8, attr, "pop")) {
+            if (args.len > 0) {
+                const k = args[0];
+                if (self.value.dict_type.get(k)) |val| {
+                    _ = self.value.dict_type.remove(k);
+                    return val;
+                }
+            }
+            if (args.len > 1) {
+                return args[1];
+            }
+            return Dynamic.initNone();
         } else if (std.mem.eql(u8, attr, "update")) {
+
             if (args.len > 0) {
                 const arg = args[0];
                 if (arg.value == .list_type) {

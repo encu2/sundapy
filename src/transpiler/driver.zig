@@ -51,11 +51,18 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             defer self.allocator.free(target_name);
             const mod_slash = try self.getModSlash(f.module);
             defer self.allocator.free(mod_slash);
-            try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_slash, mod_slash});
-            try self.emit("pub const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{target_name, mod_slash});
-            try self.emit("pub const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, target_name, mod_slash, f.name});
+            const mod_ident = try self.allocator.dupe(u8, mod_slash);
+            defer self.allocator.free(mod_ident);
+            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+
+            try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+            try self.emit("pub const _sundapy_has_decl_{s} = @hasDecl({s}_mod, \"{s}\");\n", .{target_name, mod_ident, f.name});
+            try self.emit("pub const _sundapy_is_abi_{s} = !_sundapy_has_decl_{s};\n", .{target_name, target_name});
+            try self.emit("pub var {s}: if (_sundapy_has_decl_{s}) @TypeOf(@field({s}_mod, \"{s}\")) else @import(\"{s}datatype/dynamic.zig\").Dynamic = if (_sundapy_has_decl_{s}) @field({s}_mod, \"{s}\") else undefined;\n", .{target_name, target_name, mod_ident, f.name, prefix, target_name, mod_ident, f.name});
             try self.emit("pub var {s}_dyn: @import(\"{s}datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name, prefix});
         }
+
+
     }
     
     try self.emit("\npub var alloc: std.mem.Allocator = undefined;\n\n", .{});
@@ -68,6 +75,14 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     defer strict_funcs.deinit();
     
     
+    for (program.items) |stmt| {
+        if (stmt.* == .class_stmt) {
+            const c = stmt.class_stmt;
+            try self.classes.put(c.name, true);
+            try self.class_asts.put(c.name, stmt);
+        }
+    }
+
     for (program.items) |stmt| {
         if (stmt.* == .assign) {
             const a = stmt.assign;
@@ -84,6 +99,11 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                     if (a.type_ann) |t| {
                         try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
+                        if (a.value.* == .call and a.value.call.callee.* == .identifier and self.classes.contains(a.value.call.callee.identifier.name)) {
+                            try self.emit("var {s}: {s} = undefined;\n", .{ a.target, a.value.call.callee.identifier.name });
+                            continue;
+                        }
+
                         if (self.escape_analyzer.variables.get(a.target)) |v_info| {
                             if (v_info.class == .stack and v_info.is_primitive) {
                                 // Use inferred primitive type for global
@@ -104,12 +124,9 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             if (d.is_strict or self.is_strict) {
                 try strict_funcs.put(d.name, true);
             }
-        } else if (stmt.* == .class_stmt) {
-            const c = stmt.class_stmt;
-            try self.classes.put(c.name, true);
-            try self.class_asts.put(c.name, stmt);
         }
     }
+
     
     // Output all top-level defs or classes
     for (program.items) |stmt| {
@@ -157,10 +174,15 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             try self.emitIndent();
             try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {{\n", .{mod_ident});
             try self.emitIndent();
-            try self.emit("    {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_ident, f.name});
+            try self.emit("    const _tmp_{s} = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_ident, f.name});
+            try self.emitIndent();
+            try self.emit("    {s}_dyn = _tmp_{s};\n", .{target_name, target_name});
+            try self.emitIndent();
+            try self.emit("    if (comptime _sundapy_is_abi_{s}) {s} = _tmp_{s};\n", .{target_name, target_name, target_name});
             try self.emitIndent();
             try self.emit("}}\n", .{});
         }
+
     }
 
     

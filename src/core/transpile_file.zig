@@ -34,6 +34,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
 
     var parser = @import("../parser/parser.zig").Parser.init(allocator, &lexer);
     var program = parser.parseProgram() catch |err| {
+        if (!is_root) return err;
         std.debug.print("Syntax error during parsing {s}: {}\n", .{file_path, err});
         std.process.exit(1);
     };
@@ -43,6 +44,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
     defer transpiler.deinit();
 
     const zig_code = transpiler.transpile(program) catch |err| {
+        if (!is_root) return err;
         std.debug.print("Error during transpilation of {s}: {}\n", .{file_path, err});
         std.process.exit(1);
     };
@@ -144,105 +146,119 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                 if (cwd.access(io, init_file, .{})) {
                     try transpileFile(allocator, io, init_file, visited, threads, false, mod);
                 } else |_| {
-                    const sys_ver = try compiler.getSystemPythonVersion(allocator, io, "/usr/lib") orelse "python3.14";
-                    
-                    const site_dir = try std.fmt.allocPrint(allocator, "/usr/lib/{s}/site-packages", .{sys_ver});
-                    defer allocator.free(site_dir);
-                    const sys_dir = try std.fmt.allocPrint(allocator, "/usr/lib/{s}", .{sys_ver});
-                    defer allocator.free(sys_dir);
-                    
-                    const local_site_dir = try std.fmt.allocPrint(allocator, "/home/encu/.local/lib/{s}/site-packages", .{sys_ver});
-                    defer allocator.free(local_site_dir);
-                    const checks = [_][]const u8{
-                        try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.py", .{mod_slash}),
-                        try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}/__init__.py", .{mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{site_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{site_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{site_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{sys_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{sys_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{sys_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{local_site_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{local_site_dir, mod_slash}),
-                        try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{local_site_dir, mod_slash}),
-                    };
-                    defer {
-                        for (checks) |c| allocator.free(c);
-                    }
-                    
-                    var found_external = isPythonStdlib(mod);
-                    if (!found_external) {
-                        for (checks) |c| {
-                            if (std.mem.startsWith(u8, c, "/")) {
+                    const cache_py = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.py", .{mod_slash});
+                    defer allocator.free(cache_py);
+                    const cache_init = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}/__init__.py", .{mod_slash});
+                    defer allocator.free(cache_init);
+
+                    const in_cache_py = if (cwd.access(io, cache_py, .{})) true else |_| false;
+                    const in_cache_init = if (cwd.access(io, cache_init, .{})) true else |_| false;
+
+                    if (in_cache_py or in_cache_init) {
+                        const has_so = compiler.packageContainsSo(allocator, io, ".cache/pyLibrary", mod_slash);
+                        if (has_so) {
+                            // Binary C-Extension detected -> bridge via Python C-ABI
+                            try bridgeViaPythonAbi(allocator, io, mod, mod_slash);
+                        } else {
+                            // Pure Python package in .cache/pyLibrary -> attempt native Zig transpilation first!
+                            const pure_file = if (in_cache_py) cache_py else cache_init;
+                            std.debug.print("Found pure Python library '{s}' in .cache/pyLibrary, attempting native Zig transpilation...\n", .{mod});
+                            transpileFile(allocator, io, pure_file, visited, threads, false, mod) catch |err| {
+                                std.debug.print("Native transpilation for '{s}' encountered {any}, falling back to Python ABI bridge...\n", .{ mod, err });
+                                try bridgeViaPythonAbi(allocator, io, mod, mod_slash);
+                            };
+                        }
+                    } else {
+                        const sys_ver = try compiler.getSystemPythonVersion(allocator, io, "/usr/lib") orelse "python3.14";
+
+                        const site_dir = try std.fmt.allocPrint(allocator, "/usr/lib/{s}/site-packages", .{sys_ver});
+                        defer allocator.free(site_dir);
+                        const sys_dir = try std.fmt.allocPrint(allocator, "/usr/lib/{s}", .{sys_ver});
+                        defer allocator.free(sys_dir);
+
+                        const local_site_dir = try std.fmt.allocPrint(allocator, "/home/encu/.local/lib/{s}/site-packages", .{sys_ver});
+                        defer allocator.free(local_site_dir);
+                        const checks = [_][]const u8{
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{site_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{site_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{site_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{sys_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{sys_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{sys_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{local_site_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{local_site_dir, mod_slash}),
+                            try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{local_site_dir, mod_slash}),
+                        };
+                        defer {
+                            for (checks) |c| allocator.free(c);
+                        }
+
+                        var found_external = isPythonStdlib(mod);
+                        if (!found_external) {
+                            for (checks) |c| {
                                 if (std.Io.Dir.accessAbsolute(io, c, .{})) |_| {
-                                    found_external = true;
-                                    break;
-                                } else |_| {}
-                            } else {
-                                if (std.Io.Dir.cwd().access(io, c, .{})) |_| {
                                     found_external = true;
                                     break;
                                 } else |_| {}
                             }
                         }
-                    }
-                    // Also check if findSoFile finds it in cache just in case
-                    if (!found_external) {
-                        if (try compiler.findSoFile(allocator, io, ".cache/pyLibrary", mod_slash)) |f| {
-                            defer allocator.free(f);
-                            found_external = true;
+
+                        if (found_external) {
+                            try bridgeViaPythonAbi(allocator, io, mod, mod_slash);
+                        } else {
+                            try compiler.addMissingModule(allocator, io, mod);
+                            return;
                         }
-                    }
-                    
-                    if (found_external) {
-                        std.debug.print("Found external/system module '{s}', bridging via Python ABI...\n", .{mod});
-                        
-                        const dest_path = try std.fmt.allocPrint(allocator, ".cache/src/{s}.zig", .{mod_slash});
-                        defer allocator.free(dest_path);
-                        if (std.fs.path.dirname(dest_path)) |dir| {
-                            cwd.createDirPath(io, dir) catch {};
-                        }
-                        
-                        var depth: usize = 0;
-                        for (mod_slash) |c| {
-                            if (c == '/') depth += 1;
-                        }
-                        var prefix_buf: [128]u8 = undefined;
-                        var prefix_len: usize = 0;
-                        var _d: usize = 0;
-                        while (_d < depth) : (_d += 1) {
-                            @memcpy(prefix_buf[prefix_len..prefix_len+3], "../");
-                            prefix_len += 3;
-                        }
-                        const prefix = prefix_buf[0..prefix_len];
-                        
-                        const wrapper_code = try std.fmt.allocPrint(allocator,
-                            \\const std = @import("std");
-                            \\const dynamic = @import("{s}datatype/dynamic.zig");
-                            \\const Dynamic = dynamic.Dynamic;
-                            \\const PikaPython = @import("{s}datatype/python_abi.zig").PikaPython;
-                            \\
-                            \\pub const _is_abi = true;
-                            \\pub var _module: Dynamic = undefined;
-                            \\
-                            \\pub fn __sundapy_module_init() !void {{
-                            \\    try PikaPython.init();
-                            \\    _module = try PikaPython.importModule("{s}");
-                            \\}}
-                            \\
-                            \\pub fn builtin_getattr(attr: []const u8) Dynamic {{
-                            \\    return _module.getAbiAttribute(attr);
-                            \\}}
-                            \\
-                        , .{prefix, prefix, mod});
-                        defer allocator.free(wrapper_code);
-                        cwd.writeFile(io, .{ .sub_path = dest_path, .data = wrapper_code }) catch {};
-                    } else {
-                        try compiler.addMissingModule(allocator, io, mod);
-                        return;
                     }
                 }
             }
         }
     }
+}
+
+fn bridgeViaPythonAbi(allocator: std.mem.Allocator, io: std.Io, mod: []const u8, mod_slash: []const u8) !void {
+    compiler.global_uses_c_abi = true;
+    std.debug.print("Found external/binary module '{s}', bridging via Python ABI...\n", .{mod});
+
+    const cwd = std.Io.Dir.cwd();
+    const dest_path = try std.fmt.allocPrint(allocator, ".cache/src/{s}.zig", .{mod_slash});
+    defer allocator.free(dest_path);
+    if (std.fs.path.dirname(dest_path)) |dir| {
+        cwd.createDirPath(io, dir) catch {};
+    }
+
+    var depth: usize = 0;
+    for (mod_slash) |c| {
+        if (c == '/') depth += 1;
+    }
+    var prefix_buf: [128]u8 = undefined;
+    var prefix_len: usize = 0;
+    var _d: usize = 0;
+    while (_d < depth) : (_d += 1) {
+        @memcpy(prefix_buf[prefix_len .. prefix_len + 3], "../");
+        prefix_len += 3;
+    }
+    const prefix = prefix_buf[0..prefix_len];
+
+    const wrapper_code = try std.fmt.allocPrint(allocator,
+        \\const std = @import("std");
+        \\const dynamic = @import("{s}datatype/dynamic.zig");
+        \\const Dynamic = dynamic.Dynamic;
+        \\const PikaPython = @import("{s}datatype/python_abi.zig").PikaPython;
+        \\
+        \\pub const _is_abi = true;
+        \\pub var _module: Dynamic = undefined;
+        \\
+        \\pub fn __sundapy_module_init() !void {{
+        \\    try PikaPython.init();
+        \\    _module = try PikaPython.importModule("{s}");
+        \\}}
+        \\
+        \\pub fn builtin_getattr(attr: []const u8) Dynamic {{
+        \\    return _module.getAbiAttribute(attr);
+        \\}}
+        \\
+    , .{ prefix, prefix, mod });
+    defer allocator.free(wrapper_code);
+    try cwd.writeFile(io, .{ .sub_path = dest_path, .data = wrapper_code });
 }

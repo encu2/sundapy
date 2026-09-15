@@ -71,7 +71,8 @@ SundaPy uses a local CLI workflow.
 - **Run a script**: `./zig-out/bin/sundapy script.py` (Compiles and executes silently).
 - **Force rebuild**: `./zig-out/bin/sundapy script.py -y`
 - **Build a standalone binary**: `./zig-out/bin/sundapy --build script.py` (Outputs an executable named `script` in the current directory).
-- **Fetch pip packages**: `./zig-out/bin/sundafetch <package_name>` (Downloads C-API modules like `numpy` or `matplotlib` via `uv` into `.cache/pyLibrary`).
+- **Fetch pip packages**: `./zig-out/bin/sundafetch <package_name>` or `sundafetch -r requirements.txt` (Downloads and extracts wheels natively via `sundafetch` into `.cache/pyLibrary` with zero external dependencies).
+- **Build system fetch**: `zig build fetch -- <pkg>` or `zig build fetch -- -r requirements.txt` (Installs external Python libraries via the Zig build system directly into `.cache/pyLibrary`).
 
 ---
 
@@ -91,7 +92,11 @@ As an AI, if you need to debug SundaPy's compiler, here is exactly how it works:
 5. **Python C-ABI (Embedding)**:
    - SundaPy embeds `libpython` dynamically. When Python imports `numpy`, it actually bridges memory directly via C-ABI into Zig. `Dynamic` structs store raw C-pointers to `PyObject`.
 
-## 5. Agent Instructions for Modifying Code
+## 5. C-ABI Compatibility Layer & Detection
+- **Conditional Inclusion**: The compiler scans dependencies and imported modules. If a library or script does NOT require external binary extensions (`.so`/`.pyd`) or Python C-ABI symbols, it compiles in **Pure Native Mode** with zero C-ABI overhead (`[SUNDAPY] Python C-ABI compatibility layer: NOT REQUIRED`). If external binary C-ABI modules (e.g. `numpy`, `bs4`, `requests`) are imported, SundaPy automatically enables the Python C-ABI bridge (`[SUNDAPY] Python C-ABI compatibility layer: ENABLED`).
+- **Iterative Directory Scanner**: Directory traversal for binary discovery (`scanDirForSo`) in both compiler and `sundafetch` strictly uses a flat, heap-backed iterative stack (`std.ArrayList([]const u8)`) without function recursion, preventing stack exhaustion / recursion bombs on deep dependency trees.
+
+## 6. Agent Instructions for Modifying Code
 - **Always check for `#strict`**: Before you write a loop or math operation, look at line 1. If it's strict, use correct bit-width types (e.g., `i16`, `i64`).
 - **Never use `cat` in bash**: Use native specific tools or write helper python scripts to patch files.
 - **Cache invalidation**: If you patch the compiler in `src/`, always run `echo "n" | ./install.sh` to rebuild the binary, and then `rm -rf .cache` to ensure your target `.py` file actually gets recompiled by the new logic.

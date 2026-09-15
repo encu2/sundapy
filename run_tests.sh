@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-rm -rf .cache/
+rm -rf .cache/src .cache/bin .cache/hashes.txt
 
 # Warna untuk output
 GREEN='\033[0;32m'

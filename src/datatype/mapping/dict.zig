@@ -59,4 +59,18 @@ pub const Dict = struct {
         defer self.unlock();
         return self.map.count();
     }
+
+    pub fn remove(self: Dict, key: Dynamic) bool {
+        self.lock();
+        defer self.unlock();
+        var buf: [32]u8 = undefined;
+        const key_str = switch (key.value) {
+            .str_type => |s| s,
+            .i64_type => |i| std.fmt.bufPrint(&buf, "{d}", .{i}) catch return false,
+            .bool_type => |b| if (b) "True" else "False",
+            else => return false,
+        };
+        return self.map.remove(key_str);
+    }
 };
+

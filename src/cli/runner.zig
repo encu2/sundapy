@@ -66,20 +66,23 @@ pub fn main(ctx: std.process.Init) !void {
         var cache_mgr = @import("../core/cache.zig").CacheManager.init(allocator);
         try cache_mgr.ensureCacheDirs(allocator, io);
 
-        var uv_args: std.ArrayList([]const u8) = .empty;
-        try uv_args.appendSlice(allocator, &[_][]const u8{"/home/encu/.local/bin/uv", "pip", "install", "--target", ".cache/pyLibrary"});
-        try uv_args.appendSlice(allocator, fetch_args.items);
+        const sundafetch_bin = getSundafetchPath(allocator, io);
+        var fetch_cmd = std.ArrayList([]const u8).empty;
+        try fetch_cmd.append(allocator, sundafetch_bin);
+        try fetch_cmd.appendSlice(allocator, fetch_args.items);
 
-        std.debug.print("Fetching packages via uv...\n", .{});
-        const uv_res = try std.process.run(allocator, io, .{
-            .argv = uv_args.items,
+        std.debug.print("Fetching packages via sundafetch...\n", .{});
+        const res = try std.process.run(allocator, io, .{
+            .argv = fetch_cmd.items,
         });
 
-        if (uv_res.term != .exited or uv_res.term.exited != 0) {
-            std.debug.print("Fetch failed!\n{s}\n", .{uv_res.stderr});
+        if (res.stdout.len > 0) std.debug.print("{s}", .{res.stdout});
+        if (res.stderr.len > 0) std.debug.print("{s}", .{res.stderr});
+
+        if (res.term != .exited or res.term.exited != 0) {
+            std.debug.print("Fetch failed!\n", .{});
             std.process.exit(1);
         } else {
-            std.debug.print("Fetch complete!\n{s}\n", .{uv_res.stdout});
             std.process.exit(0);
         }
     }
@@ -195,31 +198,23 @@ pub fn main(ctx: std.process.Init) !void {
                 
                 if (proceed_fetch) {
                     var all_success = true;
+                    const sundafetch_bin = getSundafetchPath(allocator, io);
                     for (compiler.global_missing_modules.items) |mod| {
-                        std.debug.print("Fetching '{s}'...\n", .{mod});
+                        std.debug.print("Fetching '{s}' via sundafetch...\n", .{mod});
+                        const fetch_cmd = &[_][]const u8{ sundafetch_bin, mod };
+                        const res = std.process.run(allocator, io, .{ .argv = fetch_cmd }) catch null;
                         var fetch_failed = false;
-                        
-                        // 1. Try fetching via uv pip install --target .cache/pyLibrary <mod>
-                        const uv_args = &[_][]const u8{ "/home/encu/.local/bin/uv", "pip", "install", "--target", ".cache/pyLibrary", mod };
-                        const uv_res = std.process.run(allocator, io, .{ .argv = uv_args }) catch null;
-                        if (uv_res != null and uv_res.?.term == .exited and uv_res.?.term.exited == 0) {
-                            fetch_failed = false;
-                        } else {
-                            // 2. Fallback to sundafetch if uv is not available
-                            const exe_dir = std.process.executableDirPathAlloc(io, allocator) catch ".";
-                            defer if (!std.mem.eql(u8, exe_dir, ".")) allocator.free(exe_dir);
-                            const cmd_str = try std.fmt.allocPrint(allocator, "{s}/sundafetch {s}", .{exe_dir, mod});
-                            defer allocator.free(cmd_str);
-                            const cmd = &[_][]const u8{ "sh", "-c", cmd_str };
-                            const res = std.process.run(allocator, io, .{ .argv = cmd }) catch null;
-                            if (res == null or res.?.term != .exited or res.?.term.exited != 0) {
+                        if (res == null or res.?.term != .exited or res.?.term.exited != 0) {
+                            fetch_failed = true;
+                        } else if (res.?.stderr.len > 0) {
+                            if (std.mem.indexOf(u8, res.?.stderr, "Error fetching") != null or 
+                                std.mem.indexOf(u8, res.?.stderr, "Failed to fetch metadata") != null) {
                                 fetch_failed = true;
-                            } else if (res != null and res.?.stderr.len > 0) {
-                                if (std.mem.indexOf(u8, res.?.stderr, "Error fetching") != null or 
-                                    std.mem.indexOf(u8, res.?.stderr, "Failed to fetch metadata") != null) {
-                                    fetch_failed = true;
-                                }
                             }
+                        }
+                        if (res) |r| {
+                            if (r.stdout.len > 0) std.debug.print("{s}", .{r.stdout});
+                            if (r.stderr.len > 0) std.debug.print("{s}", .{r.stderr});
                         }
 
                         if (!fetch_failed) {
@@ -328,6 +323,12 @@ pub fn main(ctx: std.process.Init) !void {
 
         // Update Hash if successfully compiled
         try cache_mgr.updateCacheHash(io, final_script, current_hash);
+
+        if (compiler.global_uses_c_abi) {
+            std.debug.print("[SUNDAPY] Python C-ABI compatibility layer: ENABLED\n", .{});
+        } else {
+            std.debug.print("[SUNDAPY] Python C-ABI compatibility layer: NOT REQUIRED (Pure Native Mode)\n", .{});
+        }
     }
 
     // 5. Execution or Build output
@@ -362,6 +363,23 @@ pub fn main(ctx: std.process.Init) !void {
     }
 }
 
+fn getSundafetchPath(allocator: std.mem.Allocator, io: std.Io) []const u8 {
+    const cwd = std.Io.Dir.cwd();
+    if (std.process.executableDirPathAlloc(io, allocator)) |exe_dir| {
+        defer allocator.free(exe_dir);
+        const candidate = std.fmt.allocPrint(allocator, "{s}/sundafetch", .{exe_dir}) catch return "sundafetch";
+        if (cwd.access(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    } else |_| {}
+    if (cwd.access(io, "zig-out/bin/sundafetch", .{})) |_| {
+        return "zig-out/bin/sundafetch";
+    } else |_| {}
+    return "sundafetch";
+}
+
 // ponytail: simple print block for help. No need for complex argparse libs yet (YAGNI).
 fn printHelp() void {
     std.debug.print(
@@ -371,10 +389,11 @@ fn printHelp() void {
         \\
         \\Options:
         \\  -h, --help    Show this help message and exit
-        \\  --build       Build a standalone executable from the Python script instead of running it directly\n        \\  --fast        Run in fast development mode (bypasses LLVM optimization for 6x faster compile)
+        \\  --build       Build a standalone executable from the Python script instead of running it directly
+        \\  --fast        Run in fast development mode (bypasses LLVM optimization for 6x faster compile)
         \\
         \\Commands:
-        \\  fetch <pkg>   Download and install a package via uv into .cache/pyLibrary
+        \\  fetch <pkg>   Download and install a package via sundafetch into .cache/pyLibrary
         \\
         \\Examples:
         \\  sundapy main.py
@@ -383,3 +402,4 @@ fn printHelp() void {
         \\
     , .{});
 }
+

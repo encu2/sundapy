@@ -73,13 +73,13 @@ pub fn transpileTryStmt(self: *Transpiler, t: anytype, declared_vars: *std.Strin
         const current_depth = self.try_depth;
         
         try self.emitIndent();
-        try self.emit("const _result_try_{d}: anyerror!void = blk_{d}: {{\n", .{current_depth, current_depth});
+        try self.emit("const _result_try_{d}: anyerror!void = try_blk_{d}: {{\n", .{current_depth, current_depth});
         self.indent_level += 1;
         
         try self.emitIndent();
         try self.emit("var _force_err_{d} = false; _ = &_force_err_{d};\n", .{current_depth, current_depth});
         try self.emitIndent();
-        try self.emit("if (_force_err_{d}) break :blk_{d} error.Exception;\n", .{current_depth, current_depth});
+        try self.emit("if (_force_err_{d}) break :try_blk_{d} error.Exception;\n", .{current_depth, current_depth});
         
         for (t.body.items) |stmt| {
             try self.transpileStmt(stmt, declared_vars, strict_funcs);
@@ -87,12 +87,13 @@ pub fn transpileTryStmt(self: *Transpiler, t: anytype, declared_vars: *std.Strin
         if (t.body.items.len > 0) {
             if (t.body.items[t.body.items.len - 1].* != .return_stmt) {
                 try self.emitIndent();
-                try self.emit("break :blk_{d} {{}};\n", .{current_depth});
+                try self.emit("break :try_blk_{d} {{}};\n", .{current_depth});
             }
         } else {
             try self.emitIndent();
-            try self.emit("break :blk_{d} {{}};\n", .{current_depth});
+            try self.emit("break :try_blk_{d} {{}};\n", .{current_depth});
         }
+
         self.indent_level -= 1;
         try self.emitIndent();
         try self.emit("}};\n", .{});

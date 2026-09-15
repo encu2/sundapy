@@ -6,12 +6,12 @@ const mapping = @import("../mapping.zig");
 
     pub fn builtin_len(self: Dynamic) Dynamic {
         switch (self.value) {
-            .str_type => |s| return Dynamic.initInt(@as(i64, @intCast(s.len))),
-            .list_type => |l| return Dynamic.initInt(@as(i64, @intCast(l.items.items.len))),
+            .str_type, .list_type, .tuple_type, .range_type, .py_obj_type => return Dynamic.initInt(@as(i64, @intCast(self.len()))),
             .dict_type => |d| return Dynamic.initInt(@as(i64, @intCast(d.count()))),
             else => std.debug.panic("TypeError: object of type has no len()\n", .{}),
         }
     }
+
     pub fn builtin_type(self: Dynamic) Dynamic {
         return switch (self.value) {
             .i8_type, .i16_type, .i32_type, .i64_type, .i128_type, .i256_type, .i512_type, .i1024_type,
@@ -259,12 +259,23 @@ const mapping = @import("../mapping.zig");
         unreachable;
     }
     pub fn builtin_iter(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
-        _ = alloc; _ = args;
-        std.debug.panic("NotImplementedError: iter() stub\n", .{});
-        unreachable;
+        _ = alloc;
+        if (args.len > 0) return args[0];
+        return Dynamic.initNone();
     }
     pub fn builtin_next(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
-        _ = alloc; _ = args;
-        std.debug.panic("NotImplementedError: next() stub\n", .{});
-        unreachable;
+        _ = alloc;
+        if (args.len > 0) {
+            var it = args[0];
+            if (it.value == .list_type) {
+                if (it.value.list_type.items.items.len > 0) {
+                    return it.value.list_type.items.orderedRemove(0);
+                }
+                if (args.len > 1) return args[1];
+                std.debug.panic("StopIteration\n", .{});
+            }
+        }
+        if (args.len > 1) return args[1];
+        return Dynamic.initNone();
     }
+

@@ -5,7 +5,7 @@ import threading
 
 print("\n1. Test Modul Subprocess:")
 print("Akan menjalankan perintah shell: 'echo hello'")
-res = subprocess.run("echo hello")
+res = subprocess.run(["echo", "hello"])
 print("Hasil eksekusi:", res)
 
 print("\n2. Test Modul Socket:")

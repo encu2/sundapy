@@ -38,4 +38,14 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const fetch_step = b.step("fetch", "Fetch pip packages using sundafetch into .cache/pyLibrary");
+    const fetch_cmd = b.addRunArtifact(fetcher_exe);
+    fetch_step.dependOn(&fetch_cmd.step);
+    fetch_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        fetch_cmd.addArgs(args);
+    }
 }
+

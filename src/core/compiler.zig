@@ -49,6 +49,84 @@ pub fn findSoFile(allocator: std.mem.Allocator, io: std.Io, base_dir: []const u8
     return null;
 }
 
+pub fn packageContainsSo(allocator: std.mem.Allocator, io: std.Io, base_dir: []const u8, mod_slash: []const u8) bool {
+    const cwd = std.Io.Dir.cwd();
+
+    // 1. Direct file check: base_dir/mod_slash.so or .pyd
+    const direct_so = std.fmt.allocPrint(allocator, "{s}/{s}.so", .{ base_dir, mod_slash }) catch return false;
+    defer allocator.free(direct_so);
+    if (cwd.access(io, direct_so, .{})) |_| return true else |_| {}
+
+    const direct_pyd = std.fmt.allocPrint(allocator, "{s}/{s}.pyd", .{ base_dir, mod_slash }) catch return false;
+    defer allocator.free(direct_pyd);
+    if (cwd.access(io, direct_pyd, .{})) |_| return true else |_| {}
+
+    // 2. Package directory recursive scan: base_dir/mod_slash
+    const dir_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ base_dir, mod_slash }) catch return false;
+    defer allocator.free(dir_path);
+
+    var dir = cwd.openDir(io, dir_path, .{ .iterate = true }) catch return false;
+    defer dir.close(io);
+
+    return scanDirForSo(allocator, io, dir);
+}
+
+fn scanDirForSo(allocator: std.mem.Allocator, io: std.Io, root_dir: std.Io.Dir) bool {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    var stack: std.ArrayList([]const u8) = .empty;
+
+    // 1. Scan root_dir directly
+    {
+        var iter = root_dir.iterate();
+        while (true) {
+            const entry_opt = iter.next(io) catch break;
+            if (entry_opt == null) break;
+            const entry = entry_opt.?;
+            if (entry.kind == .file) {
+                if (std.mem.endsWith(u8, entry.name, ".so") or std.mem.endsWith(u8, entry.name, ".pyd")) {
+                    return true;
+                }
+            } else if (entry.kind == .directory) {
+                if (!std.mem.eql(u8, entry.name, "__pycache__") and !std.mem.startsWith(u8, entry.name, ".")) {
+                    const sub_path = arena_alloc.dupe(u8, entry.name) catch continue;
+                    stack.append(arena_alloc, sub_path) catch continue;
+                }
+            }
+        }
+    }
+
+    // 2. Process all subdirectories purely iteratively (zero recursion)
+    while (stack.items.len > 0) {
+        const rel_path = stack.pop().?;
+
+        var dir = root_dir.openDir(io, rel_path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+
+        var iter = dir.iterate();
+        while (true) {
+            const entry_opt = iter.next(io) catch break;
+            if (entry_opt == null) break;
+            const entry = entry_opt.?;
+
+            if (entry.kind == .file) {
+                if (std.mem.endsWith(u8, entry.name, ".so") or std.mem.endsWith(u8, entry.name, ".pyd")) {
+                    return true;
+                }
+            } else if (entry.kind == .directory) {
+                if (!std.mem.eql(u8, entry.name, "__pycache__") and !std.mem.startsWith(u8, entry.name, ".")) {
+                    const sub_path = std.fmt.allocPrint(arena_alloc, "{s}/{s}", .{ rel_path, entry.name }) catch continue;
+                    stack.append(arena_alloc, sub_path) catch continue;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+
 pub var global_uses_c_abi: bool = false;
 pub var is_no_panic: bool = false;
 pub var global_uses_dynamic: bool = false;

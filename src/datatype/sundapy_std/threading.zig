@@ -40,5 +40,19 @@ pub const Thread = struct {
     }
 };
 
+pub fn spawn(target: Dynamic) anyerror!Dynamic {
+    _ = try std.Thread.spawn(.{}, struct {
+        fn worker(t: Dynamic) void {
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            const alloc = arena.allocator();
+            var args_arr = [_]Dynamic{};
+            _ = t.builtin_call(alloc, &args_arr, null) catch {};
+        }
+    }.worker, .{target});
+    return Dynamic.initNone();
+}
+
 pub fn _is_abi() void {}
 pub fn __sundapy_module_init() !void {}
+

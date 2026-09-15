@@ -121,7 +121,7 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("))", .{});
             } else if (self.try_depth > 0) {
                 self.label_counter += 1;
-                try self.emit(") catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+                try self.emit(") catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
         },
         .slice => |s| {
@@ -152,8 +152,9 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             try self.emit(")", .{});
             if (self.try_depth > 0) {
                 self.label_counter += 1;
-                try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+                try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
+
         },
         .getattr => |g| {
             if (self.try_depth == 0) {

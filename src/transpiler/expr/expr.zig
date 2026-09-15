@@ -98,6 +98,8 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                         try self.emit("(if (@typeInfo(@TypeOf({s})) == .@\"fn\") dynamic.toDynamicFunc({s}) else {s})", .{escaped, escaped, escaped});
                     }
                 }
+
+
             },
             .list_expr => |l| {
                 self.label_counter += 1;
@@ -234,9 +236,27 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 }
                 
                 if (target_is_module) {
-                    try self.emit("(", .{});
+                    self.label_counter += 1;
+                    const lid = self.label_counter;
+                    try self.emit("((blk_{d}: {{\n", .{lid});
+                    try self.emit("    const _target = ", .{});
                     try self.transpileExpr(g.target);
-                    try self.emit(").{s}", .{g.attr});
+                    try self.emit(";\n", .{});
+                    try self.emit("    if (@hasDecl(_target, \"{s}\")) {{\n", .{g.attr});
+                    try self.emit("        const _d = @field(_target, \"{s}\");\n", .{g.attr});
+                    try self.emit("        const D = @TypeOf(_d);\n", .{});
+                    try self.emit("        if (D == Dynamic) break :blk_{d} _d;\n", .{lid});
+                    try self.emit("        if (D == i64 or D == comptime_int) break :blk_{d} Dynamic{{ .value = .{{ .i64_type = @intCast(_d) }} }};\n", .{lid});
+                    try self.emit("        if (D == f64 or D == comptime_float) break :blk_{d} Dynamic{{ .value = .{{ .float_type = @floatCast(_d) }} }};\n", .{lid});
+                    try self.emit("        if (D == bool) break :blk_{d} Dynamic{{ .value = .{{ .bool_type = _d }} }};\n", .{lid});
+                    try self.emit("        if (@typeInfo(D) == .pointer) break :blk_{d} Dynamic{{ .value = .{{ .str_type = _d }} }};\n", .{lid});
+                    try self.emit("        break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
+                    try self.emit("    }} else if (@hasDecl(_target, \"builtin_getattr\")) {{\n", .{});
+                    try self.emit("        break :blk_{d} _target.builtin_getattr(\"{s}\");\n", .{lid, g.attr});
+                    try self.emit("    }} else {{\n", .{});
+                    try self.emit("        break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
+                    try self.emit("    }}\n", .{});
+                    try self.emit("}}))", .{});
                 } else {
                     self.label_counter += 1;
                     const lid = self.label_counter;
@@ -272,6 +292,19 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                     try self.emit("            if (F == bool) break :blk_{d} Dynamic{{ .value = .{{ .bool_type = _f }} }};\n", .{lid});
                     try self.emit("            if (@typeInfo(F) == .pointer) break :blk_{d} Dynamic{{ .value = .{{ .str_type = _f }} }};\n", .{lid});
                     try self.emit("            break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
+                    try self.emit("        }}\n", .{});
+                    try self.emit("    }} else if (T == type) {{\n", .{});
+                    try self.emit("        if (@hasDecl(_target, \"{s}\")) {{\n", .{g.attr});
+                    try self.emit("            const _d = @field(_target, \"{s}\");\n", .{g.attr});
+                    try self.emit("            const D = @TypeOf(_d);\n", .{});
+                    try self.emit("            if (D == Dynamic) break :blk_{d} _d;\n", .{lid});
+                    try self.emit("            if (D == i64 or D == comptime_int) break :blk_{d} Dynamic{{ .value = .{{ .i64_type = @intCast(_d) }} }};\n", .{lid});
+                    try self.emit("            if (D == f64 or D == comptime_float) break :blk_{d} Dynamic{{ .value = .{{ .float_type = @floatCast(_d) }} }};\n", .{lid});
+                    try self.emit("            if (D == bool) break :blk_{d} Dynamic{{ .value = .{{ .bool_type = _d }} }};\n", .{lid});
+                    try self.emit("            if (@typeInfo(D) == .pointer) break :blk_{d} Dynamic{{ .value = .{{ .str_type = _d }} }};\n", .{lid});
+                    try self.emit("            break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
+                    try self.emit("        }} else if (@hasDecl(_target, \"builtin_getattr\")) {{\n", .{});
+                    try self.emit("            break :blk_{d} _target.builtin_getattr(\"{s}\");\n", .{lid, g.attr});
                     try self.emit("        }}\n", .{});
                     try self.emit("    }}\n", .{});
                     try self.emit("    break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});
