@@ -9,11 +9,83 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         const lid = self.label_counter;
         try self.emit("(blk_{d}: {{\n", .{lid});
         try self.emitIndent();
-        try self.emit("    var obj = ", .{});
+        try self.emit("    const _target = ", .{});
         try self.transpileExpr(m.target);
-        try self.emit(".{s}{{}};\n", .{m.method});
+        try self.emit(";\n", .{});
         try self.emitIndent();
-        try self.emit("    _ = try obj.__init__(", .{});
+        try self.emit("    const T_target = @TypeOf(_target);\n", .{});
+        try self.emitIndent();
+        try self.emit("    if (comptime T_target == dynamic.Dynamic) {{\n", .{});
+        try self.emitIndent();
+        try self.emit("        var _args_arr = [_]dynamic.Dynamic{{", .{});
+        for (m.args.items, 0..) |arg, idx| {
+            if (self.is_strict) {
+                try self.emit("dynamic.Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
+            } else {
+                try self.transpileExpr(arg);
+            }
+            if (idx < m.args.items.len - 1) try self.emit(", ", .{});
+        }
+        try self.emit("}};\n", .{});
+        if (m.kwargs.items.len > 0) {
+            try self.emitIndent();
+            try self.emit("        var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
+            for (m.kwargs.items) |kw| {
+                try self.emitIndent();
+                try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
+                if (self.is_strict) {
+                    try self.emit("dynamic.Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
+                } else {
+                    try self.transpileExpr(kw.value);
+                }
+                try self.emit(") catch {{}};\n", .{});
+            }
+            try self.emitIndent();
+            try self.emit("        break :blk_{d} try _target.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid, m.method});
+        } else {
+            try self.emitIndent();
+            try self.emit("        break :blk_{d} try _target.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, null);\n", .{lid, m.method});
+        }
+        try self.emitIndent();
+        try self.emit("    }} else if (comptime T_target == type and @hasDecl(_target, \"builtin_getattr\")) {{\n", .{});
+        try self.emitIndent();
+        try self.emit("        var _args_arr = [_]dynamic.Dynamic{{", .{});
+        for (m.args.items, 0..) |arg, idx| {
+            if (self.is_strict) {
+                try self.emit("dynamic.Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
+            } else {
+                try self.transpileExpr(arg);
+            }
+            if (idx < m.args.items.len - 1) try self.emit(", ", .{});
+        }
+        try self.emit("}};\n", .{});
+        if (m.kwargs.items.len > 0) {
+            try self.emitIndent();
+            try self.emit("        var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
+            for (m.kwargs.items) |kw| {
+                try self.emitIndent();
+                try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
+                if (self.is_strict) {
+                    try self.emit("dynamic.Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
+                } else {
+                    try self.transpileExpr(kw.value);
+                }
+                try self.emit(") catch {{}};\n", .{});
+            }
+            try self.emitIndent();
+            try self.emit("        break :blk_{d} try _target.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid, m.method});
+        } else {
+            try self.emitIndent();
+            try self.emit("        break :blk_{d} try _target.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, null);\n", .{lid, m.method});
+        }
+        try self.emitIndent();
+        try self.emit("    }} else {{\n", .{});
+        try self.emitIndent();
+        try self.emit("        var obj = _target.{s}{{}};\n", .{m.method});
+        try self.emitIndent();
+        try self.emit("        if (@hasDecl(@TypeOf(obj), \"__init__\")) {{\n", .{});
+        try self.emitIndent();
+        try self.emit("            _ = try obj.__init__(", .{});
         for (m.args.items, 0..) |arg, idx| {
             if (self.is_strict) {
                 try self.transpileExprStrict(arg);
@@ -24,7 +96,11 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         }
         try self.emit(");\n", .{});
         try self.emitIndent();
-        try self.emit("    break :blk_{d} obj;\n", .{lid});
+        try self.emit("        }}\n", .{});
+        try self.emitIndent();
+        try self.emit("        break :blk_{d} obj;\n", .{lid});
+        try self.emitIndent();
+        try self.emit("    }}\n", .{});
         try self.emit("}})", .{});
         return;
     }

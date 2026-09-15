@@ -71,7 +71,7 @@ const TokenType = lexer.TokenType;
             }
             try self.consumeStmtEnd();
             const node = try self.allocator.create(ast.Node);
-            node.* = .{ .raise_stmt = .{ .value = val } };
+            node.* = .{ .raise_stmt = .{ .value = val, .from_exc = null } };
             return node;
         }
         if (self.match(.KeywordTry)) {

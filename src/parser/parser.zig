@@ -7,19 +7,20 @@ const TokenType = lexer_mod.TokenType;
 
 pub const Precedence = enum(u8) {
     none = 0,
-    assignment = 1,
-    logicalOr = 2,
-    logicalAnd = 3,
-    bitwiseOr = 4,
-    bitwiseXor = 5,
-    bitwiseAnd = 6,
-    equality = 7,
-    comparison = 8,
-    shift = 9,
-    term = 10,
-    factor = 11,
-    call = 12,
-    primary = 13,
+    assignment = 2,
+    logicalOr = 3,
+    logicalAnd = 4,
+    
+    bitwiseOr = 5,
+    bitwiseXor = 6,
+    bitwiseAnd = 7,
+    equality = 8,
+    comparison = 9,
+    shift = 10,
+    term = 11,
+    factor = 12,
+    call = 13,
+    primary = 14,
 };
 
 pub const Parser = struct {
@@ -56,6 +57,8 @@ pub const Parser = struct {
     pub fn expect(self: *Parser, t: TokenType) !void {
         if (self.current.type == t) {
             self.advance();
+        } else if (t == .Identifier and (self.current.type == .KeywordMatch or self.current.type == .KeywordFrom)) {
+            self.advance();
         } else {
             std.debug.print("ParseError on line {d} (expect): Expected {any}, got {any} '{s}'\n", .{self.current.line, t, self.current.type, self.current.lexeme});
             return error.ParseError;
@@ -64,14 +67,15 @@ pub const Parser = struct {
 
     pub fn getPrecedence(t: TokenType) Precedence {
         return switch (t) {
-            .KeywordIf => .assignment,
+            
+            .ColonEq, .KeywordIf => .assignment,
             .KeywordOr => .logicalOr,
             .KeywordAnd => .logicalAnd,
             .Pipe => .bitwiseOr,
             .Caret => .bitwiseXor,
             .Ampersand => .bitwiseAnd,
             .EqEq, .BangEq => .equality,
-            .Lt, .Gt, .LtEq, .GtEq => .comparison,
+            .Lt, .Gt, .LtEq, .GtEq, .KeywordIn, .KeywordIs, .KeywordNot => .comparison,
             .LtLt, .GtGt => .shift,
             .Plus, .Minus => .term,
             .Star, .Slash, .SlashSlash, .Percent, .StarStar => .factor,

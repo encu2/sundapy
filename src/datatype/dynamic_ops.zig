@@ -193,14 +193,7 @@ pub const shr = @import("dynamic_ops_bitwise.zig").shr;
 pub const bitNot = @import("dynamic_ops_bitwise.zig").bitNot;
 
 pub fn isTruthy(a: Dynamic) bool {
-    switch (a.value) {
-        .bool_type => |v| return v,
-        .i64_type => |v| return v != 0,
-        .float_type => |v| return v != 0.0,
-        .str_type => |v| return v.len > 0,
-        .none_type => return false,
-        else => return true,
-    }
+    return a.toBool();
 }
 
 pub fn logicAnd(a: Dynamic, b: Dynamic) Dynamic {

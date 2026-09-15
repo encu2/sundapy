@@ -3,6 +3,10 @@ const ast = @import("../../core/ast.zig");
 const Transpiler = @import("../transpiler.zig").Transpiler;
 const mapType = @import("../transpiler.zig").Transpiler.mapType;
 
+pub fn transpileTupleAssign(self: *Transpiler, target: *const ast.Node) anyerror!void {
+    try self.writer.print("// TODO: tuple assignment\n", .{});
+    _ = target;
+}
 pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
     const already_declared = declared_vars.contains(a.target);
     if (!already_declared) {
@@ -10,7 +14,13 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         if (self.is_strict) {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                try self.transpileExprStrict(a.value);
+                if (std.mem.eql(u8, t, "Dynamic")) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    try self.transpileExprStrict(a.value);
+                }
             } else {
                 std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
                 return error.MissingTypeAnnotation;
@@ -18,7 +28,13 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         } else {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                try self.transpileExprStrict(a.value);
+                if (std.mem.eql(u8, t, "Dynamic")) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    try self.transpileExprStrict(a.value);
+                }
             } else {
                 // Use escape analysis to avoid Dynamic if possible!
                 if (self.escape_analyzer.variables.get(a.target)) |v_info| {
@@ -43,7 +59,17 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
     } else {
         try self.emit("{s} = ", .{ a.target });
         if (a.type_ann != null or self.is_strict) {
-            try self.transpileExprStrict(a.value);
+            if (a.type_ann) |t| {
+                if (std.mem.eql(u8, t, "Dynamic")) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    try self.transpileExprStrict(a.value);
+                }
+            } else {
+                try self.transpileExprStrict(a.value);
+            }
         } else {
             var is_stack_primitive = false;
             if (self.escape_analyzer.variables.get(a.target)) |v_info| {

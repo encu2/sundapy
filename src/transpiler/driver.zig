@@ -129,7 +129,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
         try self.emit("@setRuntimeSafety(true);\n", .{});
     }
     try self.emitIndent();
-    try self.emit("alloc = std.heap.page_allocator;\n", .{});
+    try self.emit("alloc = std.heap.c_allocator;\n", .{});
 
     // Emit init calls for all imported modules (ABI wrappers need __sundapy_module_init)
     for (program.items) |stmt| {
@@ -148,12 +148,16 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             const mod_slash = try self.getModSlash(f.module);
             defer self.allocator.free(mod_slash);
             
+            const mod_ident = try self.allocator.dupe(u8, mod_slash);
+            defer self.allocator.free(mod_ident);
+            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+
             try self.emitIndent();
-            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_slash, mod_slash});
+            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_ident, mod_ident});
             try self.emitIndent();
-            try self.emit("if (_sundapy_is_abi_{s}) {{\n", .{target_name});
+            try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {{\n", .{mod_ident});
             try self.emitIndent();
-            try self.emit("    {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_slash, f.name});
+            try self.emit("    {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_ident, f.name});
             try self.emitIndent();
             try self.emit("}}\n", .{});
         }
@@ -190,7 +194,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     const out_str = self.out.items;
     
     const dyn_import_str = if (@import("../core/compiler.zig").global_uses_dynamic)
-        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\n\n", .{prefix})
+        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\nconst int = Dynamic.initStr(\"int\");\nconst @\"float\" = Dynamic.initStr(\"float\");\nconst str = Dynamic.initStr(\"str\");\nconst list = Dynamic.initStr(\"list\");\nconst dict = Dynamic.initStr(\"dict\");\nconst @\"bool\" = Dynamic.initStr(\"bool\");\n\n", .{prefix})
     else
         try std.fmt.allocPrint(self.allocator, "// Pure static mode\nconst Dynamic = void;\n", .{});
     defer self.allocator.free(dyn_import_str);

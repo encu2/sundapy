@@ -8,19 +8,41 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
     try self.expect(.LParen);
     var params: std.ArrayList(ast.Param) = .empty;
     while (self.current.type != .RParen) {
+        if (self.match(.StarStar)) {
+            const p_name = self.current.lexeme;
+            try self.expect(.Identifier);
+            if (self.match(.Colon)) {
+                _ = try self.parseExpr(.none);
+            }
+            params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null }) catch unreachable;
+            _ = self.match(.Comma);
+            continue;
+        } else if (self.match(.Star)) {
+            if (self.current.type == .Identifier) {
+                const p_name = self.current.lexeme;
+                try self.expect(.Identifier);
+                if (self.match(.Colon)) {
+                    _ = try self.parseExpr(.none);
+                }
+                params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null }) catch unreachable;
+            } else {
+                // just a * marker for kw-only args
+            }
+            _ = self.match(.Comma);
+            continue;
+        } else if (self.match(.Slash)) {
+            _ = self.match(.Comma);
+            continue;
+        }
+        
         const p_name = self.current.lexeme;
         try self.expect(.Identifier);
         var p_type: ?[]const u8 = null;
         if (self.match(.Colon)) {
-            if (self.current.type == .Identifier) {
-                p_type = self.current.lexeme;
-                self.advance();
-            } else if (self.current.type == .KeywordNone) {
-                p_type = "None";
-                self.advance();
-            } else {
-                std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
-                return error.ParseError;
+            const t_expr = try self.parseExpr(.none);
+            // Extract type name if it's a simple identifier (e.g. int, str, float, bool)
+            if (t_expr.* == .identifier) {
+                p_type = t_expr.identifier.name;
             }
         }
         var default_val: ?*ast.Node = null;
@@ -34,12 +56,9 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
     var ret_type: ?[]const u8 = null;
     if (self.current.type == .Identifier and std.mem.eql(u8, self.current.lexeme, "->")) {
         self.advance();
-        if (self.current.type == .Identifier) {
-            ret_type = self.current.lexeme;
-            self.advance();
-        } else if (self.current.type == .KeywordNone) {
-            ret_type = "None";
-            self.advance();
+        const ret_expr = try self.parseExpr(.none);
+        if (ret_expr.* == .identifier) {
+            ret_type = ret_expr.identifier.name;
         }
     } else if (self.match(.Minus)) { 
         _ = try self.parseExpr(.none);
@@ -60,8 +79,14 @@ pub fn parseClassStmt(self: *Parser, decorators: std.ArrayList(*ast.Node)) anyer
     try self.expect(.Identifier);
     var base_class: ?[]const u8 = null;
     if (self.match(.LParen)) {
-        base_class = self.current.lexeme;
-        try self.expect(.Identifier);
+        if (self.current.type != .RParen) {
+            const start_pos = self.current.lexeme.ptr;
+            while (self.current.type != .RParen and self.current.type != .EOF) {
+                self.advance();
+            }
+            const len = @intFromPtr(self.current.lexeme.ptr) - @intFromPtr(start_pos);
+            base_class = start_pos[0..len];
+        }
         try self.expect(.RParen);
     }
     try self.expect(.Colon);

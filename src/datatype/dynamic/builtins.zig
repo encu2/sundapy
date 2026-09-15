@@ -13,7 +13,21 @@ const mapping = @import("../mapping.zig");
         }
     }
     pub fn builtin_type(self: Dynamic) Dynamic {
-        return Dynamic.initStr(@tagName(self.value));
+        return switch (self.value) {
+            .i8_type, .i16_type, .i32_type, .i64_type, .i128_type, .i256_type, .i512_type, .i1024_type,
+            .u8_type, .u16_type, .u32_type, .u64_type, .u128_type, .u256_type, .u512_type, .u1024_type => Dynamic.initStr("int"),
+            .float_type => Dynamic.initStr("float"),
+            .str_type, .str16_type => Dynamic.initStr("str"),
+            .bool_type => Dynamic.initStr("bool"),
+            .list_type => Dynamic.initStr("list"),
+            .dict_type => Dynamic.initStr("dict"),
+            .tuple_type => Dynamic.initStr("tuple"),
+            .range_type => Dynamic.initStr("range"),
+            .bytes_type, .bytearray_type => Dynamic.initStr("bytes"),
+            .set_type, .frozenset_type => Dynamic.initStr("set"),
+            .none_type => Dynamic.initStr("NoneType"),
+            else => Dynamic.initStr(@tagName(self.value)),
+        };
     }
     pub fn builtin_isinstance(self: Dynamic, class_name: []const u8) Dynamic {
         // Very basic isinstance checking.
@@ -90,9 +104,18 @@ const mapping = @import("../mapping.zig");
         return Dynamic.initStr(buf[0..len_bytes]);
     }
     pub fn builtin_enumerate(self: Dynamic) Dynamic {
-        _ = self;
-        std.debug.panic("NotImplementedError: enumerate not fully supported\n", .{});
-        unreachable;
+        const alloc = std.heap.c_allocator;
+        var result_list = std.ArrayList(Dynamic).empty;
+        const count = self.len();
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            const item = self.getItem(i);
+            var pair = std.ArrayList(Dynamic).empty;
+            pair.append(alloc, Dynamic.initInt(@intCast(i))) catch {};
+            pair.append(alloc, item) catch {};
+            result_list.append(alloc, Dynamic.initList(pair)) catch {};
+        }
+        return Dynamic.initList(result_list);
     }
     pub fn builtin_hash(self: Dynamic) Dynamic {
         switch (self.value) {
@@ -191,9 +214,14 @@ const mapping = @import("../mapping.zig");
         return Dynamic.initComplex(std.math.Complex(f64).init(r, i));
     }
     pub fn builtin_open(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
-        _ = alloc; _ = args;
-        std.debug.panic("NotImplementedError: file I/O not implemented yet\n", .{});
-        unreachable;
+        if (args.len == 0) return Dynamic.initNone();
+        const path = if (args[0].value == .str_type) args[0].value.str_type else "";
+        const mode = if (args.len > 1 and args[1].value == .str_type) args[1].value.str_type else "r";
+        
+        var dict = Dynamic.initDict(alloc);
+        dict.setDynamicItem(Dynamic.initStr("path"), Dynamic.initStr(path)) catch {};
+        dict.setDynamicItem(Dynamic.initStr("mode"), Dynamic.initStr(mode)) catch {};
+        return dict;
     }
     pub fn builtin_dir(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
         _ = alloc; _ = args;

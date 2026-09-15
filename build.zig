@@ -9,8 +9,8 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
-            .optimize = .ReleaseSmall,
-            .strip = true,
+            .optimize = .Debug,
+            .strip = false,
         }),
     });
 
@@ -21,8 +21,8 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/fetcher/main.zig"),
             .target = target,
-            .optimize = .ReleaseSmall,
-            .strip = true,
+            .optimize = .Debug,
+            .strip = false,
             .unwind_tables = .none,
             .pic = false,
             .omit_frame_pointer = true,

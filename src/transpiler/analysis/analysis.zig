@@ -4,7 +4,9 @@ const ast = @import("../../core/ast.zig");
 
 pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
     switch (node.*) {
-        .number, .integer, .float, .string, .fstring, .await_expr, .global_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
+        .number, .integer, .float, .string, .fstring, .await_expr, .assign_expr, .global_decl, .del_stmt, .nonlocal_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
+        .ellipsis => return false,
+        .dummy_expr => return false,
         .identifier => |i| return std.mem.eql(u8, i.name, func_name),
         .unary => |u| return isRecursive(u.right, func_name),
         .binary => |b| return isRecursive(b.left, func_name) or isRecursive(b.right, func_name),
@@ -31,11 +33,27 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
         },
         .getattr => |g| return isRecursive(g.target, func_name),
         .setattr => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name),
+        .yield_expr => |y| if (y.value) |v| return isRecursive(v, func_name) else return false,
         .subscript => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name),
         .subscript_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name) or isRecursive(s.value, func_name),
+        .tuple_assign => |t| {
+            if (isRecursive(t.value, func_name)) return true;
+            for (t.targets.items) |tgt| {
+                if (isRecursive(tgt, func_name)) return true;
+            }
+            return false;
+        },
         .slice => |s| return isRecursive(s.target, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
         .slice_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
-        .yield_stmt => |y| return isRecursive(y.value, func_name),
+        .yield_stmt => |y| {
+            if (y.value) |v| return isRecursive(v, func_name);
+            return false;
+        },
+        .assert_stmt => |a| {
+            if (isRecursive(a.condition, func_name)) return true;
+            if (a.message) |m| if (isRecursive(m, func_name)) return true;
+            return false;
+        },
         .list_expr => |l| {
             for (l.items.items) |item| {
                 if (isRecursive(item, func_name)) return true;
@@ -77,7 +95,8 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             return false;
         },
         .raise_stmt => |r| {
-            if (r.value) |v| return isRecursive(v, func_name);
+            if (r.value) |v| if (isRecursive(v, func_name)) return true;
+            if (r.from_exc) |f| if (isRecursive(f, func_name)) return true;
             return false;
         },
         .def_stmt => |d| {

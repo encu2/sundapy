@@ -67,17 +67,29 @@ pub const Transpiler = struct {
     }
     
     pub fn escapeKeyword(self: *Transpiler, name: []const u8) ![]const u8 {
+        if (std.mem.eql(u8, name, "*")) { self.label_counter += 1; return std.fmt.allocPrint(self.allocator, "_star_{d}", .{self.label_counter}); }
         const keywords = [_][]const u8{ "error", "async", "await", "var", "const", "fn", "test", "pub", "inline", "comptime", "switch", "return", "try", "catch", "break", "continue", "if", "else", "while", "for", "and", "or", "struct", "enum", "union", "defer", "errdefer" };
         for (keywords) |kw| {
             if (std.mem.eql(u8, name, kw)) {
                 return std.fmt.allocPrint(self.allocator, "@\"{s}\"", .{name});
             }
         }
-        return self.allocator.dupe(u8, name);
+        const duped = try self.allocator.dupe(u8, name);
+        for (duped) |*ch| {
+            if (ch.* == '(' or ch.* == ')' or ch.* == '*' or ch.* == '-' or ch.* == '/') ch.* = '_';
+        }
+        return duped;
     }
     
     pub fn getModSlash(self: *Transpiler, mod_name: []const u8) ![]const u8 {
-        const mod_slash = try self.allocator.dupe(u8, mod_name);
+        var start_idx: usize = 0;
+        while (start_idx < mod_name.len and mod_name[start_idx] == '.') {
+            start_idx += 1;
+        }
+        if (start_idx == mod_name.len) {
+            return try self.allocator.dupe(u8, "___dummy___");
+        }
+        const mod_slash = try self.allocator.dupe(u8, mod_name[start_idx..]);
         for (mod_slash) |*c| {
             if (c.* == '.') c.* = '/';
         }

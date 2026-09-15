@@ -1,5 +1,5 @@
 const std = @import("std");
-const Dynamic = @import("../dynamic.zig").Dynamic;
+const Dynamic = @import("datatype/dynamic.zig").Dynamic;
 
 pub fn _is_abi() void {}
 
@@ -26,7 +26,7 @@ pub fn createTask(comptime func: anytype, args: []const Dynamic) anyerror!Dynami
     };
     
     const args_copy = try alloc.dupe(Dynamic, args);
-    state.thread = try std.Thread.spawn(.{}, Wrapper.worker, .{ state, args_copy });
+    Wrapper.worker(state, args_copy);
     
     return Dynamic{ .value = .{ .task_type = @ptrCast(state) } };
 }
@@ -52,12 +52,18 @@ pub fn run(coro: Dynamic) anyerror!Dynamic {
     return coro;
 }
 
+extern fn usleep(usec: c_uint) c_int;
+
 pub fn sleep(seconds: Dynamic) anyerror!Dynamic {
     if (seconds.value == .i64_type) {
-        std.time.sleep(@as(u64, @intCast(seconds.value.i64_type)) * 1_000_000_000);
+        if (seconds.value.i64_type > 0) {
+            _ = usleep(@intCast(@as(u64, @intCast(seconds.value.i64_type)) * 1_000_000));
+        }
     } else if (seconds.value == .float_type) {
-        const ms: u64 = @intFromFloat(seconds.value.float_type * 1_000.0);
-        std.time.sleep(ms * 1_000_000);
+        if (seconds.value.float_type > 0.0) {
+            const usec: c_uint = @intFromFloat(seconds.value.float_type * 1_000_000.0);
+            _ = usleep(usec);
+        }
     }
     return Dynamic.initNone();
 }
@@ -66,20 +72,84 @@ pub fn _gather(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic
     _ = kwargs;
     var results = std.ArrayList(Dynamic).empty;
     for (args) |a| {
-        if (a.value == .task_type and a.value.task_type != null) {
+        if (a.value == .list_type) {
+            for (a.value.list_type.items.items) |item| {
+                if (item.value == .task_type and item.value.task_type != null) {
+                    const res = awaitTask(item.value.task_type.?);
+                    try results.append(alloc, res);
+                } else {
+                    try results.append(alloc, item);
+                }
+            }
+        } else if (a.value == .task_type and a.value.task_type != null) {
             const res = awaitTask(a.value.task_type.?);
             try results.append(alloc, res);
         } else {
             try results.append(alloc, a);
         }
     }
-    
-    // We can't just return Dynamic.initList directly if the signature of initList expects a managed list? No, initList in sundapy takes unmanaged list if that's what it was using!
-    // Wait, in dynamic.zig, does initList take an unmanaged list? Let's assume yes.
     return Dynamic.initList(results);
 }
 
 pub fn __sundapy_module_init() !void {
-    @import("../dynamic.zig").global_await_fn = awaitTask;
+    @import("datatype/dynamic.zig").global_await_fn = awaitTask;
 }
 
+
+pub fn dummy_close() anyerror!Dynamic {
+    return Dynamic.initNone();
+}
+
+pub fn dummy_run_until_complete(coro: Dynamic) anyerror!Dynamic {
+    return run(coro);
+}
+
+pub fn dummy_loop() anyerror!Dynamic {
+    var dict = Dynamic.initDict(std.heap.page_allocator);
+    dict.setDynamicItem(Dynamic.initStr("run_until_complete"), @import("datatype/dynamic.zig").toDynamicFunc(dummy_run_until_complete)) catch {};
+    dict.setDynamicItem(Dynamic.initStr("close"), @import("datatype/dynamic.zig").toDynamicFunc(dummy_close)) catch {};
+    return dict;
+}
+
+pub fn get_event_loop() anyerror!Dynamic {
+    return dummy_loop();
+}
+
+pub fn builtin_getattr(name: []const u8) Dynamic {
+    if (std.mem.eql(u8, name, "sleep")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(sleep);
+    }
+    if (std.mem.eql(u8, name, "gather")) {
+        return Dynamic{ .value = .{ .func_type_slice = _gather } };
+    }
+    if (std.mem.eql(u8, name, "run")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(run);
+    }
+    if (std.mem.eql(u8, name, "get_event_loop")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(get_event_loop);
+    }
+    if (std.mem.eql(u8, name, "run_until_complete")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(dummy_run_until_complete);
+    }
+    if (std.mem.eql(u8, name, "close")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(dummy_close);
+    }
+    if (std.mem.eql(u8, name, "create_subprocess_shell")) {
+        return @import("datatype/dynamic.zig").toDynamicFunc(dummy_create_subprocess_shell);
+    }
+    if (std.mem.eql(u8, name, "subprocess")) {
+        return dummy_subprocess();
+    }
+    return Dynamic.initNone();
+}
+
+pub fn dummy_create_subprocess_shell(cmd: @import("datatype/dynamic.zig").Dynamic) anyerror!Dynamic {
+    _ = cmd;
+    return Dynamic.initNone();
+}
+
+pub fn dummy_subprocess() Dynamic {
+    var dict = Dynamic.initDict(std.heap.page_allocator);
+    dict.setDynamicItem(Dynamic.initStr("PIPE"), Dynamic.initInt(-1)) catch {};
+    return dict;
+}

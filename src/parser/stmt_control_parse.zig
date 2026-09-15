@@ -25,6 +25,12 @@ pub fn parseTryStmt(self: *Parser) anyerror!*ast.Node {
         except_block = try self.parseBlock();
     }
     
+    var else_block: ?std.ArrayList(*ast.Node) = null;
+    if (self.match(.KeywordElse)) {
+        try self.expect(.Colon);
+        else_block = try self.parseBlock();
+    }
+
     var finally_block: ?std.ArrayList(*ast.Node) = null;
     if (self.match(.KeywordFinally)) {
         try self.expect(.Colon);
@@ -32,7 +38,7 @@ pub fn parseTryStmt(self: *Parser) anyerror!*ast.Node {
     }
     
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .try_stmt = .{ .body = try_block, .except_branch = except_block, .except_type = except_type, .except_as = except_as, .finally_branch = finally_block } };
+    node.* = .{ .try_stmt = .{ .body = try_block, .except_branch = except_block, .except_type = except_type, .except_as = except_as, .finally_branch = finally_block, .else_branch = else_block } };
     return node;
 }
 
@@ -88,29 +94,37 @@ pub fn parseWhileStmt(self: *Parser) anyerror!*ast.Node {
     const cond = try self.parseExpr(.none);
     try self.expect(.Colon);
     const block = try self.parseBlock();
+    var else_block: ?std.ArrayList(*ast.Node) = null;
+    if (self.match(.KeywordElse)) {
+        try self.expect(.Colon);
+        else_block = try self.parseBlock();
+    }
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .while_stmt = .{ .condition = cond, .body = block } };
+    node.* = .{ .while_stmt = .{ .condition = cond, .body = block, .else_body = else_block } };
     return node;
 }
 
 pub fn parseForStmt(self: *Parser, is_async: bool) anyerror!*ast.Node {
-    _ = is_async;
+    
     const start_pos = self.current.lexeme.ptr;
-    var len: usize = self.current.lexeme.len;
-    try self.expect(.Identifier);
-    while (self.match(.Comma)) {
-        if (self.current.type == .Identifier) {
-            len = @intFromPtr(self.current.lexeme.ptr) + self.current.lexeme.len - @intFromPtr(start_pos);
-            self.advance();
-        }
+    while (self.current.type != .KeywordIn and self.current.type != .EOF) {
+        self.advance();
     }
+    // actually, let's just do:
+    const len = @intFromPtr(self.current.lexeme.ptr) - @intFromPtr(start_pos);
     const iter_name = start_pos[0..len];
+    // advance over 'in'
     try self.expect(.KeywordIn);
     const iter = try self.parseExpr(.none);
     try self.expect(.Colon);
     const block = try self.parseBlock();
+    var else_block: ?std.ArrayList(*ast.Node) = null;
+    if (self.match(.KeywordElse)) {
+        try self.expect(.Colon);
+        else_block = try self.parseBlock();
+    }
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .for_stmt = .{ .iterator = iter_name, .iterable = iter, .body = block } };
+    node.* = .{ .for_stmt = .{ .is_async = is_async, .iterator = iter_name, .iterable = iter, .body = block, .else_body = else_block } };
     return node;
 }
 

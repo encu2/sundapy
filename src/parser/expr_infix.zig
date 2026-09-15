@@ -76,6 +76,19 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
                     }
                 }
             } else {
+                if (self.current.type == .Comma) {
+                    var items: std.ArrayList(*ast.Node) = .empty;
+                    items.append(self.allocator, first) catch unreachable;
+                    while (self.match(.Comma)) {
+                        if (self.current.type == .RBracket) break;
+                        items.append(self.allocator, try self.parseExpr(.none)) catch unreachable;
+                    }
+                    const tuple_node = try self.allocator.create(ast.Node);
+                    tuple_node.* = .{ .list_expr = .{ .items = items } };
+                    try self.expect(.RBracket);
+                    node.* = .{ .subscript = .{ .target = left, .index = tuple_node } };
+                    return node;
+                }
                 try self.expect(.RBracket);
                 node.* = .{ .subscript = .{ .target = left, .index = first } };
                 return node;
@@ -85,6 +98,46 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
         try self.expect(.RBracket);
         node.* = .{ .slice = .{ .target = left, .start = slice_start, .stop = slice_stop, .step = slice_step } };
         return node;
+    }
+
+
+    
+    if (t == .ColonEq) {
+        self.advance();
+        const right = try self.parseExpr(Parser.getPrecedence(.ColonEq));
+        node.* = .{ .assign_expr = .{ .target = left, .value = right } };
+        return node;
+    }
+    
+    if (t == .KeywordIn) {
+        self.advance();
+        const right = try self.parseExpr(Parser.getPrecedence(.KeywordIn));
+        node.* = .{ .binary = .{ .op = "in", .left = left, .right = right } };
+        return node;
+    }
+    if (t == .KeywordIs) {
+        self.advance();
+        if (self.current.type == .KeywordNot) {
+            self.advance();
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordIs));
+            node.* = .{ .binary = .{ .op = "is_not", .left = left, .right = right } };
+            return node;
+        } else {
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordIs));
+            node.* = .{ .binary = .{ .op = "is", .left = left, .right = right } };
+            return node;
+        }
+    }
+    if (t == .KeywordNot) {
+        self.advance();
+        if (self.current.type == .KeywordIn) {
+            self.advance();
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordNot));
+            node.* = .{ .binary = .{ .op = "not_in", .left = left, .right = right } };
+            return node;
+        } else {
+            return error.ParseError;
+        }
     }
 
     if (t == .KeywordIf) {

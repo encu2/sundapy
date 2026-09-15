@@ -179,25 +179,25 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 }
                 try self.emit(");\n", .{});
                 try self.emit("            break :blk_{d} obj;\n", .{lid});
-                try self.emit("        }} else {{\n", .{});
+                try self.emit("        }} else if (T_{s} == dynamic.Dynamic) {{\n", .{name});
                 try self.emit("            var _args_arr = [_]Dynamic{{", .{});
-                for (c.args.items, 0..) |arg, idx| {
+                for (c.args.items, 0..) |arg2, idx2| {
                     if (self.is_strict) {
-                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg2); try self.emit(")", .{});
                     } else {
-                        try self.transpileExpr(arg);
+                        try self.transpileExpr(arg2);
                     }
-                    if (idx < c.args.items.len - 1) try self.emit(", ", .{});
+                    if (idx2 < c.args.items.len - 1) try self.emit(", ", .{});
                 }
                 try self.emit("}};\n", .{});
                 if (c.kwargs.items.len > 0) {
                     try self.emit("            var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
-                    for (c.kwargs.items) |kw| {
-                        try self.emit("            _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
+                    for (c.kwargs.items) |kw2| {
+                        try self.emit("            _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw2.key});
                         if (self.is_strict) {
-                            try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
+                            try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw2.value); try self.emit(")", .{});
                         } else {
-                            try self.transpileExpr(kw.value);
+                            try self.transpileExpr(kw2.value);
                         }
                         try self.emit(") catch {{}};\n", .{});
                     }
@@ -205,6 +205,43 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 } else {
                     try self.emit("            break :blk_{d} try {s}.builtin_call(alloc, &_args_arr, null);\n", .{lid, name});
                 }
+                try self.emit("        }} else if (comptime @typeInfo(T_{s}) == .@\"fn\") {{\n", .{name});
+                try self.emit("            var _args_arr = [_]Dynamic{{\n", .{});
+                for (c.args.items, 0..) |arg3, idx3| {
+                    if (self.is_strict) {
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg3); try self.emit(")", .{});
+                    } else {
+                        try self.transpileExpr(arg3);
+                    }
+                    if (idx3 < c.args.items.len - 1) try self.emit(", ", .{});
+                }
+                try self.emit("}};\n", .{});
+                if (c.kwargs.items.len > 0) {
+                    try self.emit("            var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
+                    for (c.kwargs.items) |kw3| {
+                        try self.emit("            _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw3.key});
+                        if (self.is_strict) {
+                            try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw3.value); try self.emit(")", .{});
+                        } else {
+                            try self.transpileExpr(kw3.value);
+                        }
+                        try self.emit(") catch {{}};\n", .{});
+                    }
+                    try self.emit("            break :blk_{d} try dynamic.toDynamicFunc({s}).builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid, name});
+                } else {
+                    try self.emit("            break :blk_{d} try dynamic.toDynamicFunc({s}).builtin_call(alloc, &_args_arr, null);\n", .{lid, name});
+                }
+                try self.emit("        }} else {{\n", .{});
+                try self.emit("            break :blk_{d} try {s}(", .{lid, name});
+                for (c.args.items, 0..) |arg3, idx3| {
+                    if (self.is_strict) {
+                        try self.transpileExprStrict(arg3);
+                    } else {
+                        try self.transpileExpr(arg3);
+                    }
+                    if (idx3 < c.args.items.len - 1) try self.emit(", ", .{});
+                }
+                try self.emit(");\n", .{});
                 try self.emit("        }}\n", .{});
                 try self.emit("    }}\n", .{});
                 try self.emit("}})", .{});
@@ -282,6 +319,30 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             }
             try self.emit(");\n        }}\n", .{});
             try self.emit("        break :blk_{d} _obj;\n", .{lid});
+            if (c.kwargs.items.len > 0) {
+                try self.emit("    }} else if (comptime (@typeInfo(T_callee) == .@\"fn\" or (@typeInfo(T_callee) == .pointer and @typeInfo(@typeInfo(T_callee).pointer.child) == .@\"fn\"))) {{\n", .{});
+                try self.emit("        var _args_arr = [_]Dynamic{{", .{});
+                for (c.args.items, 0..) |arg, idx| {
+                    if (self.is_strict) {
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
+                    } else {
+                        try self.transpileExpr(arg);
+                    }
+                    if (idx < c.args.items.len - 1) try self.emit(", ", .{});
+                }
+                try self.emit("}};\n", .{});
+                try self.emit("        var _kwargs_dict = dynamic.Dynamic.initDict(alloc);\n", .{});
+                for (c.kwargs.items) |kw| {
+                    try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
+                    if (self.is_strict) {
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
+                    } else {
+                        try self.transpileExpr(kw.value);
+                    }
+                    try self.emit(") catch {{}};\n", .{});
+                }
+                try self.emit("        break :blk_{d} dynamic.toDynamicFunc(_callee).builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid});
+            }
             try self.emit("    }} else {{\n", .{});
             try self.emit("        break :blk_{d} _callee(", .{lid});
             for (c.args.items, 0..) |arg, idx| {

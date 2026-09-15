@@ -98,9 +98,11 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
             
             for (d.params.items) |p| {
                 try declared_vars.put(p.name, true);
+                try self.emitIndent();
                 if (std.mem.eql(u8, p.name, "self")) {
-                    try self.emitIndent();
-                    try self.emit("_ = &self;\n", .{});
+                    try self.emit("_ = if (true) self else {{}};\n", .{});
+                } else {
+                    try self.emit("_ = if (true) {s} else {{}};\n", .{p.name});
                 }
             }
             

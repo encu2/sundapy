@@ -50,7 +50,7 @@ pub fn transpileReturn(self: *Transpiler, r: anytype) !void {
         try self.emit(";\n", .{});
     } else {
         if (!self.is_strict) {
-            try self.emit("return Dynamic{{ .value = .none_type }};\n", .{});
+            try self.emit("if (_has_yielded) return _yield_list else return Dynamic{{ .value = .none_type }};\n", .{});
         } else {
             try self.emit("return;\n", .{});
         }
@@ -91,4 +91,16 @@ pub fn transpileRaise(self: *Transpiler, r: anytype) !void {
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}}\n", .{});
+}
+
+pub fn transpileYield(self: *Transpiler, yield_node: anytype) anyerror!void {
+    try self.emit("_has_yielded = true;\n", .{});
+    try self.emitIndent();
+    try self.emit("_yield_list.value.list_type.items.append(alloc, ", .{});
+    if (yield_node.value) |v| {
+        try self.transpileExpr(v);
+    } else {
+        try self.emit("Dynamic.initNone()", .{});
+    }
+    try self.emit(") catch unreachable;\n", .{});
 }

@@ -156,13 +156,23 @@ pub const Lexer = struct {
             if (std.ascii.isDigit(c)) {
                 const start = self.pos;
                 var is_float = false;
-                while (std.ascii.isDigit(self.peek())) {
+                while (std.ascii.isDigit(self.peek()) or self.peek() == '_' or self.peek() == 'x' or self.peek() == 'X' or self.peek() == 'b' or self.peek() == 'B' or self.peek() == 'o' or self.peek() == 'O' or (self.peek() >= 'a' and self.peek() <= 'f') or (self.peek() >= 'A' and self.peek() <= 'F')) {
                     _ = self.advance();
                 }
                 if (self.peek() == '.') {
                     is_float = true;
                     _ = self.advance();
-                    while (std.ascii.isDigit(self.peek())) {
+                    while (std.ascii.isDigit(self.peek()) or self.peek() == '_') {
+                        _ = self.advance();
+                    }
+                }
+                if (self.peek() == 'e' or self.peek() == 'E') {
+                    is_float = true;
+                    _ = self.advance();
+                    if (self.peek() == '+' or self.peek() == '-') {
+                        _ = self.advance();
+                    }
+                    while (std.ascii.isDigit(self.peek()) or self.peek() == '_') {
                         _ = self.advance();
                     }
                 }
@@ -265,7 +275,13 @@ pub const Lexer = struct {
                 '^' => return .{ .type = .Caret, .lexeme = self.source[start..self.pos], .line = self.line },
                 '&' => return .{ .type = .Ampersand, .lexeme = self.source[start..self.pos], .line = self.line },
                 '~' => return .{ .type = .Tilde, .lexeme = self.source[start..self.pos], .line = self.line },
-                ':' => return .{ .type = .Colon, .lexeme = self.source[start..self.pos], .line = self.line },
+                ':' => {
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        return .{ .type = .ColonEq, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
+                    return .{ .type = .Colon, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
                 ';' => return .{ .type = .Semicolon, .lexeme = self.source[start..self.pos], .line = self.line },
                 ',' => return .{ .type = .Comma, .lexeme = self.source[start..self.pos], .line = self.line },
                 '.' => return .{ .type = .Dot, .lexeme = self.source[start..self.pos], .line = self.line },

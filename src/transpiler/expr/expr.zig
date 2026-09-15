@@ -32,8 +32,19 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                         while (i < f.value.len and f.value[i] != '}') : (i += 1) {}
                         if (i < f.value.len and f.value[i] == '}') {
                             const var_name = f.value[var_start..i];
-                            // Using builtin_str() is exactly what Python f-strings do (__str__)
-                            try self.emit("    _res = _res.add(dynamic.stringify(alloc, {s}));\n", .{var_name});
+                            var actual_var = var_name;
+                            if (std.mem.indexOfScalar(u8, var_name, ':')) |colon_idx| {
+                                actual_var = var_name[0..colon_idx];
+                            }
+                            var sub_lexer = @import("../../lexer/lexer.zig").Lexer.init(self.allocator, actual_var);
+                            var sub_parser = @import("../../parser/parser.zig").Parser.init(self.allocator, &sub_lexer);
+                            if (sub_parser.parseExpr(.none)) |expr_node| {
+                                try self.emit("    _res = _res.add(dynamic.stringify(alloc, ", .{});
+                                try self.transpileExpr(expr_node);
+                                try self.emit("));\n", .{});
+                            } else |_| {
+                                try self.emit("    _res = _res.add(dynamic.stringify(alloc, {s}));\n", .{actual_var});
+                            }
                         }
                         start_idx = i + 1;
                     }
@@ -42,6 +53,19 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 if (start_idx < f.value.len) {
                     try self.emit("    _res = _res.add(Dynamic{{ .value = .{{ .str_type = \"{s}\" }} }});\n", .{f.value[start_idx..]});
                 }
+                try self.emit("    break :blk_{d} _res;\n", .{lid});
+                try self.emit("}})", .{});
+            },
+        .assign_expr => |a| {
+                self.label_counter += 1;
+                const lid = self.label_counter;
+                try self.emit("(blk_{d}: {{\n", .{lid});
+                try self.emit("    const _res = ", .{});
+                try self.transpileExpr(a.value);
+                try self.emit(";\n", .{});
+                try self.emit("    ", .{});
+                try self.transpileExpr(a.target);
+                try self.emit(" = _res;\n", .{});
                 try self.emit("    break :blk_{d} _res;\n", .{lid});
                 try self.emit("}})", .{});
             },
@@ -133,17 +157,23 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
             .dict_expr => |d| {
                 self.label_counter += 1;
                 const lid = self.label_counter;
-                try self.emit("Dynamic{{ .value = .{{ .dict_type = blk_{d}: {{\n", .{lid});
-                try self.emit("    var _d_{d} = @import(\"datatype/dynamic.zig\").mapping.Dict.init(alloc) catch unreachable;\n", .{lid});
-                for (d.keys.items, 0..) |k, i| {
-                    try self.emit("    _d_{d}.put(", .{lid});
-                    try self.transpileExpr(k);
-                    try self.emit(", ", .{});
-                    try self.transpileExpr(d.values.items[i]);
-                    try self.emit(") catch unreachable;\n", .{});
+                
+                if (d.keys.items.len > 0 and d.values.items.len == 0) {
+                    try self.emit("Dynamic.initSet(alloc)", .{});
+                } else {
+                    try self.emit("Dynamic{{ .value = .{{ .dict_type = blk_{d}: {{\n", .{lid});
+                    try self.emit("    var _d_{d} = @import(\"datatype/dynamic.zig\").mapping.Dict.init(alloc) catch unreachable;\n", .{lid});
+                    try self.emit("    _ = &_d_{d};\n", .{lid});
+                    for (d.keys.items, 0..) |k, i| {
+                        try self.emit("    _d_{d}.put(", .{lid});
+                        try self.transpileExpr(k);
+                        try self.emit(", ", .{});
+                        try self.transpileExpr(d.values.items[i]);
+                        try self.emit(") catch unreachable;\n", .{});
+                    }
+                    try self.emit("    break :blk_{d} _d_{d};\n", .{lid, lid});
+                    try self.emit("}} }} }}", .{});
                 }
-                try self.emit("    break :blk_{d} _d_{d};\n", .{lid, lid});
-                try self.emit("}} }} }}", .{});
             },
             .ternary_expr => |t| {
                 try self.emit("if ((", .{});
@@ -183,6 +213,8 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                     try self.emit("(", .{});
                     try self.transpileExpr(u.right);
                     try self.emit(").pos()", .{});
+                } else if (std.mem.eql(u8, u.op, "*")) {
+                    try self.transpileExpr(u.right);
                 } else {
                     try self.emit("{s}(", .{u.op});
                     try self.transpileExpr(u.right);

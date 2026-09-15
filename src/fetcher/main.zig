@@ -160,4 +160,19 @@ fn fetchPackageImpl(allocator: std.mem.Allocator, shared_bundle: *std.crypto.Cer
     try cache_dir.writeFile(io, .{ .sub_path = tmp_path, .data = wheel_data });
     
     std.debug.print("Successfully streamed {s}.whl to disk!\n", .{pkg});
+    
+    // Now extract it
+    var file = try cache_dir.openFile(io, tmp_path, .{});
+    defer file.close(io);
+    var file_reader_buf: [8192]u8 = undefined;
+    var reader = file.reader(io, &file_reader_buf);
+    
+    var lib_dir = try cache_dir.openDir(io, ".cache/pyLibrary", .{});
+    defer lib_dir.close(io);
+    
+    std.zip.extract(lib_dir, &reader, .{}) catch |e| {
+        std.debug.print("Failed to extract ZIP: {any}\n", .{e});
+        return e;
+    };
+    std.debug.print("Successfully extracted {s} to .cache/pyLibrary!\n", .{pkg});
 }

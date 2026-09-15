@@ -27,6 +27,7 @@ pub const DynType = enum {
     func_type_2,
     func_type_3,
     func_type_4,
+    func_type_slice,
 
     frozenset_type,
     py_obj_type,
@@ -107,6 +108,7 @@ pub fn fromAny(val: anytype) Dynamic {
         func_type_2: *const fn(Dynamic, Dynamic) anyerror!Dynamic,
         func_type_3: *const fn(Dynamic, Dynamic, Dynamic) anyerror!Dynamic,
         func_type_4: *const fn(Dynamic, Dynamic, Dynamic, Dynamic) anyerror!Dynamic,
+        func_type_slice: *const fn(std.mem.Allocator, []const Dynamic, ?Dynamic) anyerror!Dynamic,
 
         frozenset_type: set_type.FrozenSet,
         
@@ -123,6 +125,8 @@ pub fn fromAny(val: anytype) Dynamic {
     pub fn initStr(val: []const u8) Dynamic { return .{ .value = .{ .str_type = val } }; }
     pub fn initList(val: std.ArrayList(Dynamic)) Dynamic { return .{ .value = .{ .list_type = .{ .items = val } } }; }
     pub fn initDict(allocator: std.mem.Allocator) Dynamic { return .{ .value = .{ .dict_type = mapping.Dict.init(allocator) catch unreachable } }; }
+    /// Wrap a heap-allocated struct pointer (class instance) as a Dynamic object.
+    pub fn initObject(ptr: *anyopaque) Dynamic { return .{ .value = .{ .py_obj_type = ptr } }; }
 
     pub fn toBool(self: Dynamic) bool {
         return switch (self.value) {
@@ -131,6 +135,12 @@ pub fn fromAny(val: anytype) Dynamic {
             .i64_type => |v| v != 0,
             .float_type => |v| v != 0.0,
             .str_type => |s| s.len > 0,
+            .bytes_type => |b| b.len > 0,
+            .bytearray_type => |ba| ba.list.items.len > 0,
+            .tuple_type => |t| t.items.len > 0,
+            .list_type => |l| l.items.items.len > 0,
+            .dict_type => |d| d.map.count() > 0,
+            .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PikaPython.isTrue(obj) else false,
             else => true,
         };
     }
@@ -164,6 +174,13 @@ pub fn fromAny(val: anytype) Dynamic {
         return self;
     }
 
+    pub const builtin_getattr = @import("dynamic_dispatch.zig").builtin_getattr;
+    pub const getAbiAttribute = @import("dynamic_dispatch.zig").getAbiAttribute;
+    pub const builtin_call = @import("dynamic_dispatch.zig").builtin_call;
+    pub const builtin_str = @import("dynamic_str.zig").builtin_str;
+    pub const getDynamicItem = @import("dynamic_items.zig").getDynamicItem;
+    pub const getDynamicSlice = @import("dynamic_items.zig").getDynamicSlice;
+    pub const setDynamicItem = @import("dynamic_items.zig").setDynamicItem;
     pub fn print(self: Dynamic) void {
         @import("dynamic/print.zig").printValue(self);
     }
@@ -209,17 +226,8 @@ pub fn fromAny(val: anytype) Dynamic {
     
     pub const str_lower = @import("dynamic/str_methods.zig").str_lower;
     
-    pub fn getDynamicItem(self: Dynamic, index: Dynamic) !Dynamic {
-        return @import("dynamic_item.zig").getDynamicItem(self, index);
-    }
     
-    pub fn getDynamicSlice(self: Dynamic, start: Dynamic, stop: Dynamic, step: Dynamic) !Dynamic {
-        return @import("dynamic_item.zig").getDynamicSlice(self, start, stop, step);
-    }
     
-    pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
-        return @import("dynamic_item.zig").setDynamicItem(self, index, value);
-    }
     
     pub const builtin_len = @import("dynamic/builtins.zig").builtin_len;
     
@@ -231,9 +239,6 @@ pub fn fromAny(val: anytype) Dynamic {
     
     pub const builtin_float = @import("dynamic/builtins.zig").builtin_float;
     
-    pub fn builtin_str(self: Dynamic, alloc: std.mem.Allocator) Dynamic {
-        return @import("dynamic/builtins.zig").builtin_str(self, alloc);
-    }
     
     pub const builtin_bool = @import("dynamic/builtins.zig").builtin_bool;
     
@@ -277,9 +282,6 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const builtin_complex = @import("dynamic/builtins.zig").builtin_complex;
     pub const builtin_open = @import("dynamic/builtins.zig").builtin_open;
     pub const builtin_dir = @import("dynamic/builtins.zig").builtin_dir;
-    pub fn builtin_getattr(self: Dynamic, attr_name: []const u8) Dynamic {
-        return self.getAbiAttribute(attr_name);
-    }
     pub const builtin_setattr = @import("dynamic/builtins.zig").builtin_setattr;
     pub const builtin_hasattr = @import("dynamic/builtins.zig").builtin_hasattr;
     pub const builtin_delattr = @import("dynamic/builtins.zig").builtin_delattr;
@@ -290,35 +292,7 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const builtin_help = @import("dynamic/builtins_extra.zig").builtin_help;
     pub const builtin_memoryview = @import("dynamic/builtins_extra.zig").builtin_memoryview;
 
-    pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
-        if (self.value == .py_obj_type) {
-            if (self.value.py_obj_type) |obj| {
-                const PikaPython = @import("python_abi.zig").PikaPython;
-                return PikaPython.getAttribute(obj, attr) catch Dynamic{ .value = .{ .none_type = {} } };
-            }
-        }
-        return Dynamic{ .value = .{ .none_type = {} } };
-    }
 
-    pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
-        if (self.value == .py_obj_type) {
-            if (self.value.py_obj_type) |obj| {
-                const PikaPython = @import("python_abi.zig").PikaPython;
-                return PikaPython.callObject(obj, alloc, args, kwargs);
-            }
-        } else if (self.value == .func_type_0) {
-            return self.value.func_type_0();
-        } else if (self.value == .func_type_1) {
-            return self.value.func_type_1(args[0]);
-        } else if (self.value == .func_type_2) {
-            return self.value.func_type_2(args[0], args[1]);
-        } else if (self.value == .func_type_4) {
-            return self.value.func_type_4(args[0], args[1], args[2], args[3]);
-        } else if (self.value == .func_type_3) {
-            return self.value.func_type_3(args[0], args[1], args[2]);
-        }
-        return error.TypeErrorNotCallable;
-    }
     pub const builtin_slice = @import("dynamic/builtins_extra.zig").builtin_slice;
     pub const builtin_vars = @import("dynamic/builtins_extra.zig").builtin_vars;
     pub const builtin___import__ = @import("dynamic/builtins_extra.zig").builtin___import__;
@@ -358,10 +332,15 @@ pub fn stringify(allocator: std.mem.Allocator, val: anytype) Dynamic {
 pub fn toDynamicFunc(f: anytype) Dynamic {
     const T = @TypeOf(f);
     const info = @typeInfo(T);
-    if (info != .@"fn") {
-        @compileError("toDynamicFunc requires a function");
-    }
-    const params = info.@"fn".params;
+    const fn_info = switch (info) {
+        .@"fn" => info.@"fn",
+        .pointer => |p| switch (@typeInfo(p.child)) {
+            .@"fn" => |f_child| f_child,
+            else => @compileError("toDynamicFunc requires a function"),
+        },
+        else => @compileError("toDynamicFunc requires a function"),
+    };
+    const params = fn_info.params;
     if (params.len == 0) {
         return Dynamic{ .value = .{ .func_type_0 = f } };
     } else if (params.len == 1) {

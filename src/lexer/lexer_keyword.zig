@@ -23,10 +23,13 @@ pub fn matchKeyword(lexeme: []const u8) TokenType {
     if (std.mem.eql(u8, lexeme, "None")) return .KeywordNone;
     if (std.mem.eql(u8, lexeme, "yield")) return .KeywordYield;
     if (std.mem.eql(u8, lexeme, "in")) return .KeywordIn;
+    if (std.mem.eql(u8, lexeme, "is")) return .KeywordIs;
     if (std.mem.eql(u8, lexeme, "and")) return .KeywordAnd;
     if (std.mem.eql(u8, lexeme, "or")) return .KeywordOr;
     if (std.mem.eql(u8, lexeme, "not")) return .KeywordNot;
     if (std.mem.eql(u8, lexeme, "global")) return .KeywordGlobal;
+    if (std.mem.eql(u8, lexeme, "del")) return .KeywordDel;
+    if (std.mem.eql(u8, lexeme, "nonlocal")) return .KeywordNonlocal;
     if (std.mem.eql(u8, lexeme, "const")) return .KeywordConst;
     if (std.mem.eql(u8, lexeme, "try")) return .KeywordTry;
     if (std.mem.eql(u8, lexeme, "except")) return .KeywordExcept;
@@ -35,6 +38,7 @@ pub fn matchKeyword(lexeme: []const u8) TokenType {
     if (std.mem.eql(u8, lexeme, "match")) return .KeywordMatch;
     if (std.mem.eql(u8, lexeme, "case")) return .KeywordCase;
     if (std.mem.eql(u8, lexeme, "as")) return .KeywordAs;
+    if (std.mem.eql(u8, lexeme, "assert")) return .KeywordAssert;
     if (std.mem.eql(u8, lexeme, "async")) return .KeywordAsync;
     if (std.mem.eql(u8, lexeme, "await")) return .KeywordAwait;
     return .Identifier;

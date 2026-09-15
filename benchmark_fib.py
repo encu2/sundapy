@@ -1,20 +1,16 @@
 #strict
-import time
 
-def fib(n: i8) -> i64:
-    a: i64 = 0
-    b: i64 = 1
-    i: i8 = 0
+def fib(n: i16) -> i128:
+    a: i128 = 0
+    b: i128 = 1
+    i: i16 = 0
     while i < n:
-        temp: i64 = a + b
+        temp: i128 = a + b
         a = b
         b = temp
         i = i + 1
     return a
 
-start: i64 = time.time_ns()
-result: i64 = fib(90)
-end: i64 = time.time_ns()
+result: i128 = fib(128)
 
-diff: i64 = end - start
-print(diff, result)
+print(result)
