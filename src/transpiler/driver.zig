@@ -90,17 +90,17 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                 try global_vars.put(a.target, true);
                 if (self.is_strict) {
                     if (a.type_ann) |t| {
-                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
                         std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
                         return error.MissingTypeAnnotation;
                     }
                 } else {
                     if (a.type_ann) |t| {
-                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
                         if (a.value.* == .call and a.value.call.callee.* == .identifier and self.classes.contains(a.value.call.callee.identifier.name)) {
-                            try self.emit("var {s}: {s} = undefined;\n", .{ a.target, a.value.call.callee.identifier.name });
+                            try self.emit("pub var {s}: {s} = undefined;\n", .{ a.target, a.value.call.callee.identifier.name });
                             continue;
                         }
 
@@ -108,11 +108,11 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                             if (v_info.class == .stack and v_info.is_primitive) {
                                 // Use inferred primitive type for global
                                 const t = self.escape_analyzer.primitiveTypeString(a.value);
-                                try self.emit("var {s}: {s} = undefined;\n", .{a.target, t});
+                                try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, t});
                                 continue;
                             }
                         }
-                        try self.emit("var {s}: Dynamic = undefined;\n", .{a.target});
+                        try self.emit("pub var {s}: Dynamic = undefined;\n", .{a.target});
                     }
                 }
             }

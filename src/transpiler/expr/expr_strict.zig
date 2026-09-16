@@ -34,11 +34,20 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
             } else if (std.mem.eql(u8, b.op, "/")) {
-                try self.emit("@divTrunc(", .{});
-                try self.transpileExprStrict(b.left);
-                try self.emit(", ", .{});
-                try self.transpileExprStrict(b.right);
-                try self.emit(")", .{});
+                const is_float_expr = (b.left.* == .float or b.left.* == .number or b.right.* == .float or b.right.* == .number);
+                if (is_float_expr) {
+                    try self.emit("(", .{});
+                    try self.transpileExprStrict(b.left);
+                    try self.emit(" / ", .{});
+                    try self.transpileExprStrict(b.right);
+                    try self.emit(")", .{});
+                } else {
+                    try self.emit("@divTrunc(", .{});
+                    try self.transpileExprStrict(b.left);
+                    try self.emit(", ", .{});
+                    try self.transpileExprStrict(b.right);
+                    try self.emit(")", .{});
+                }
             } else if (std.mem.eql(u8, b.op, "//")) {
                 try self.emit("@divFloor(", .{});
                 try self.transpileExprStrict(b.left);

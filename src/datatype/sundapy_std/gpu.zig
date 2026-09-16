@@ -937,6 +937,37 @@ pub fn launch(alloc_unused: std.mem.Allocator, args: []const Dynamic, kwargs_unu
     return launchInternal(std.heap.c_allocator, kernel_fn, gx, gy, gz, bx, by, bz, kernel_args);
 }
 
+pub fn render_mario_frame(
+    buf_dyn: Dynamic,
+    w_dyn: Dynamic,
+    h_dyn: Dynamic,
+    cam_x_dyn: Dynamic,
+    cam_y_dyn: Dynamic,
+    mario_dyn: Dynamic,
+    entities_dyn: Dynamic,
+    tiles_dyn: Dynamic,
+    map_w_dyn: Dynamic,
+    map_h_dyn: Dynamic,
+    hud_dyn: Dynamic,
+    time_dyn: Dynamic,
+) anyerror!Dynamic {
+    const args = [_]Dynamic{
+        buf_dyn,
+        w_dyn,
+        h_dyn,
+        cam_x_dyn,
+        cam_y_dyn,
+        mario_dyn,
+        entities_dyn,
+        tiles_dyn,
+        map_w_dyn,
+        map_h_dyn,
+        hud_dyn,
+        time_dyn,
+    };
+    return @import("datatype/sundapy_std/mario_gpu_renderer.zig").renderMarioFrame(std.heap.c_allocator, &args, null);
+}
+
 pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "alloc")) return @import("datatype/dynamic.zig").toDynamicFunc(alloc);
     if (std.mem.eql(u8, attr, "Buffer")) return @import("datatype/dynamic.zig").toDynamicFunc(Buffer);
@@ -955,6 +986,7 @@ pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "reduce_sum")) return @import("datatype/dynamic.zig").toDynamicFunc(reduce_sum);
     if (std.mem.eql(u8, attr, "dot_product")) return @import("datatype/dynamic.zig").toDynamicFunc(dot_product);
     if (std.mem.eql(u8, attr, "render_4d_object")) return @import("datatype/dynamic.zig").toDynamicFunc(render_4d_object);
+    if (std.mem.eql(u8, attr, "render_mario_frame")) return Dynamic{ .value = .{ .func_type_slice = render_mario_frame } };
     if (std.mem.eql(u8, attr, "parallel_for")) return @import("datatype/dynamic.zig").toDynamicFunc(parallel_for);
     if (std.mem.eql(u8, attr, "cpu_parallel")) return @import("datatype/dynamic.zig").toDynamicFunc(cpu_parallel);
     if (std.mem.eql(u8, attr, "global_id")) return @import("datatype/dynamic.zig").toDynamicFunc(global_id);
@@ -964,6 +996,7 @@ pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "syncthreads")) return @import("datatype/dynamic.zig").toDynamicFunc(syncthreads);
     return error.AttributeError;
 }
+
 
 pub fn _is_abi() void {}
 pub fn __sundapy_module_init() !void {

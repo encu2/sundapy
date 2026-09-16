@@ -54,6 +54,7 @@ var x11_scale: usize = 1;
 var x11_img_buf: ?[]u8 = null;
 var wm_protocols: u32 = 0;
 var wm_delete_window: u32 = 0;
+var key_states: [256]bool = [_]bool{false} ** 256;
 
 fn readXauthCookie(allocator: std.mem.Allocator, cookie_out: *[16]u8) bool {
     var xauth_path_buf: [256]u8 = undefined;
@@ -272,7 +273,7 @@ fn initX11Window() bool {
     // Value mask: background-pixel (0x2) | event-mask (0x800)
     std.mem.writeInt(u32, create_win_buf[28..32], 0x802, .little);
     std.mem.writeInt(u32, create_win_buf[32..36], 0x00000000, .little); // black
-    std.mem.writeInt(u32, create_win_buf[36..40], 0x8001, .little); // KeyPress | Exposure
+    std.mem.writeInt(u32, create_win_buf[36..40], 0x8003, .little); // KeyPress (1) | KeyRelease (2) | Exposure (0x8000)
     _ = std.os.linux.write(fd, &create_win_buf, 40);
 
     // Set Title (ChangeProperty opcode 18, WM_NAME)
@@ -756,15 +757,82 @@ pub fn poll_events() anyerror!Dynamic {
                 }
             } else if (ev_code == 2) {
                 const keycode = ev_buf[1];
-                if (keycode == 9 or keycode == 24) {
+                key_states[keycode] = true;
+                if (keycode == 9) { // Escape
                     is_running = false;
                     break;
                 }
+            } else if (ev_code == 3) {
+                const keycode = ev_buf[1];
+                key_states[keycode] = false;
             }
         }
     }
     return Dynamic.initBool(is_running);
 }
+
+pub fn is_key_pressed(key_dyn: Dynamic) anyerror!Dynamic {
+    if (key_dyn.value == .i64_type) {
+        const k = key_dyn.value.i64_type;
+        if (k >= 0 and k < 256) {
+            return Dynamic.initBool(key_states[@intCast(k)]);
+        }
+        return Dynamic.initBool(false);
+    }
+    if (key_dyn.value == .str_type) {
+        const s = key_dyn.value.str_type.data;
+        if (std.mem.eql(u8, s, "left") or std.mem.eql(u8, s, "a") or std.mem.eql(u8, s, "A")) {
+            return Dynamic.initBool(key_states[113] or key_states[38]);
+        }
+        if (std.mem.eql(u8, s, "right") or std.mem.eql(u8, s, "d") or std.mem.eql(u8, s, "D")) {
+            return Dynamic.initBool(key_states[114] or key_states[40]);
+        }
+        if (std.mem.eql(u8, s, "up") or std.mem.eql(u8, s, "w") or std.mem.eql(u8, s, "W")) {
+            return Dynamic.initBool(key_states[111] or key_states[25]);
+        }
+        if (std.mem.eql(u8, s, "down") or std.mem.eql(u8, s, "s") or std.mem.eql(u8, s, "S")) {
+            return Dynamic.initBool(key_states[116] or key_states[39]);
+        }
+        if (std.mem.eql(u8, s, "space") or std.mem.eql(u8, s, "jump")) {
+            return Dynamic.initBool(key_states[65] or key_states[111] or key_states[25] or key_states[53]);
+        }
+        if (std.mem.eql(u8, s, "shift") or std.mem.eql(u8, s, "run")) {
+            return Dynamic.initBool(key_states[50] or key_states[62] or key_states[52] or key_states[54]);
+        }
+        if (std.mem.eql(u8, s, "r") or std.mem.eql(u8, s, "restart")) {
+            return Dynamic.initBool(key_states[27]);
+        }
+        if (std.mem.eql(u8, s, "esc") or std.mem.eql(u8, s, "q")) {
+            return Dynamic.initBool(key_states[9] or key_states[24]);
+        }
+    }
+    return Dynamic.initBool(false);
+}
+
+pub fn get_input() anyerror!Dynamic {
+    var dict = Dynamic.initDict(std.heap.c_allocator);
+    const left = key_states[113] or key_states[38];
+    const right = key_states[114] or key_states[40];
+    const up = key_states[111] or key_states[25];
+    const down = key_states[116] or key_states[39];
+    const jump = key_states[65] or key_states[111] or key_states[25] or key_states[53];
+    const run = key_states[50] or key_states[62] or key_states[52] or key_states[54];
+    const restart = key_states[27];
+    const quit = key_states[9] or key_states[24];
+    const any_key = left or right or up or down or jump or run or restart or quit;
+
+    try dict.value.dict_type.put(Dynamic.initStr("left"), Dynamic.initBool(left));
+    try dict.value.dict_type.put(Dynamic.initStr("right"), Dynamic.initBool(right));
+    try dict.value.dict_type.put(Dynamic.initStr("up"), Dynamic.initBool(up));
+    try dict.value.dict_type.put(Dynamic.initStr("down"), Dynamic.initBool(down));
+    try dict.value.dict_type.put(Dynamic.initStr("jump"), Dynamic.initBool(jump));
+    try dict.value.dict_type.put(Dynamic.initStr("run"), Dynamic.initBool(run));
+    try dict.value.dict_type.put(Dynamic.initStr("restart"), Dynamic.initBool(restart));
+    try dict.value.dict_type.put(Dynamic.initStr("quit"), Dynamic.initBool(quit));
+    try dict.value.dict_type.put(Dynamic.initStr("any_key"), Dynamic.initBool(any_key));
+    return dict;
+}
+
 
 pub fn close() anyerror!Dynamic {
     is_running = false;
@@ -842,6 +910,8 @@ pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "record_render_time")) return @import("datatype/dynamic.zig").toDynamicFunc(record_render_time);
     if (std.mem.eql(u8, attr, "sleep_until_next_frame")) return @import("datatype/dynamic.zig").toDynamicFunc(sleep_until_next_frame);
     if (std.mem.eql(u8, attr, "poll_events")) return @import("datatype/dynamic.zig").toDynamicFunc(poll_events);
+    if (std.mem.eql(u8, attr, "is_key_pressed")) return @import("datatype/dynamic.zig").toDynamicFunc(is_key_pressed);
+    if (std.mem.eql(u8, attr, "get_input")) return @import("datatype/dynamic.zig").toDynamicFunc(get_input);
     if (std.mem.eql(u8, attr, "close")) return @import("datatype/dynamic.zig").toDynamicFunc(close);
     if (std.mem.eql(u8, attr, "get_render_time_ms")) return @import("datatype/dynamic.zig").toDynamicFunc(get_render_time_ms);
     if (std.mem.eql(u8, attr, "get_show_time_ms")) return @import("datatype/dynamic.zig").toDynamicFunc(get_show_time_ms);

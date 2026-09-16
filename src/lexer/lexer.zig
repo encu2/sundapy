@@ -206,8 +206,13 @@ pub const Lexer = struct {
                         _ = self.advance();
                         return .{ .type = .Identifier, .lexeme = self.source[start..self.pos], .line = self.line };
                     }
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        return .{ .type = .MinusEq, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     return .{ .type = .Minus, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
+
                 '*' => {
                     if (self.peek() == '*') {
                         _ = self.advance();

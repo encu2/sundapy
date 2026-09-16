@@ -93,6 +93,30 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
             switch (b.value) {
                 .i64_type => |bv| return Dynamic.initInt(av * bv),
                 .float_type => |bv| return Dynamic.initFloat(@as(f64, @floatFromInt(av)) * bv),
+                .list_type => |bv| {
+                    const count = @max(0, av);
+                    const allocator = std.heap.page_allocator;
+                    var new_list = std.ArrayList(Dynamic).empty;
+                    const orig_items = bv.items.items;
+                    const total_len = orig_items.len * @as(usize, @intCast(count));
+                    new_list.ensureTotalCapacity(allocator, total_len) catch unreachable;
+                    var rep: usize = 0;
+                    while (rep < count) : (rep += 1) {
+                        new_list.appendSlice(allocator, orig_items) catch unreachable;
+                    }
+                    return Dynamic.initList(new_list);
+                },
+                .str_type => |sv| {
+                    const count = @max(0, av);
+                    const allocator = std.heap.page_allocator;
+                    const total_len = sv.len * @as(usize, @intCast(count));
+                    var new_str = allocator.alloc(u8, total_len) catch unreachable;
+                    var rep: usize = 0;
+                    while (rep < count) : (rep += 1) {
+                        @memcpy(new_str[rep * sv.len .. (rep + 1) * sv.len], sv);
+                    }
+                    return Dynamic{ .value = .{ .str_type = new_str } };
+                },
                 else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
             }
         },
@@ -102,6 +126,36 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
                 .i64_type => |bv| return Dynamic.initFloat(av * @as(f64, @floatFromInt(bv))),
                 else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
             }
+        },
+        .list_type => |lv| {
+            if (b.value == .i64_type) {
+                const count = @max(0, b.value.i64_type);
+                const allocator = std.heap.page_allocator;
+                var new_list = std.ArrayList(Dynamic).empty;
+                const orig_items = lv.items.items;
+                const total_len = orig_items.len * @as(usize, @intCast(count));
+                new_list.ensureTotalCapacity(allocator, total_len) catch unreachable;
+                var rep: usize = 0;
+                while (rep < count) : (rep += 1) {
+                    new_list.appendSlice(allocator, orig_items) catch unreachable;
+                }
+                return Dynamic.initList(new_list);
+            }
+            std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{});
+        },
+        .str_type => |sv| {
+            if (b.value == .i64_type) {
+                const count = @max(0, b.value.i64_type);
+                const allocator = std.heap.page_allocator;
+                const total_len = sv.len * @as(usize, @intCast(count));
+                var new_str = allocator.alloc(u8, total_len) catch unreachable;
+                var rep: usize = 0;
+                while (rep < count) : (rep += 1) {
+                    @memcpy(new_str[rep * sv.len .. (rep + 1) * sv.len], sv);
+                }
+                return Dynamic{ .value = .{ .str_type = new_str } };
+            }
+            std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{});
         },
         else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
     }

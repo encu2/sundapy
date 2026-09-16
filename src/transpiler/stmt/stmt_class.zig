@@ -106,6 +106,17 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
                 }
             }
             
+            if (!self.is_strict) {
+                try self.emitIndent();
+                try self.emit("var _yield_list = dynamic.Dynamic.initList(std.ArrayList(Dynamic).empty);\n", .{});
+                try self.emitIndent();
+                try self.emit("_ = &_yield_list;\n", .{});
+                try self.emitIndent();
+                try self.emit("var _has_yielded = false;\n", .{});
+                try self.emitIndent();
+                try self.emit("_ = &_has_yielded;\n", .{});
+            }
+            
             for (d.body.items) |body_stmt| {
                 try self.transpileStmt(body_stmt, &declared_vars, strict_funcs);
             }
@@ -120,7 +131,7 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
             if (d.return_type == null and !last_is_return) {
                 if (!self.is_strict) {
                     try self.emitIndent();
-                    try self.emit("return Dynamic{{ .value = .none_type }};\n", .{});
+                    try self.emit("if (_has_yielded) return _yield_list else return Dynamic{{ .value = .none_type }};\n", .{});
                 } else {
                     try self.emitIndent();
                     try self.emit("return;\n", .{});
