@@ -39,7 +39,7 @@ pub const files = .{
     .{ "sundapy_std/_thread.zig", @embedFile("datatype/sundapy_std/_thread.zig") },
     .{ "sundapy_std/asyncio.zig", @embedFile("datatype/sundapy_std/asyncio.zig") },
     .{ "sundapy_std/gpu.zig", @embedFile("datatype/sundapy_std/gpu.zig") },
-    .{ "sundapy_std/mario_gpu_renderer.zig", @embedFile("datatype/sundapy_std/mario_gpu_renderer.zig") },
+    .{ "sundapy_std/GUIEngine.zig", @embedFile("datatype/sundapy_std/GUIEngine.zig") },
     .{ "sundapy_std/math.zig", @embedFile("datatype/sundapy_std/math.zig") },
     .{ "sundapy_std/requests.zig", @embedFile("datatype/sundapy_std/requests.zig") },
     .{ "sundapy_std/screenGUI.zig", @embedFile("datatype/sundapy_std/screenGUI.zig") },

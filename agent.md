@@ -125,8 +125,8 @@ src/
         ├── asyncio.zig                   # Asyncio event loop, Task, sleep(), gather() coroutine runner
         ├── math.zig                      # Accelerated math functions (sin, cos, tan, sqrt, pow, log, etc.)
         ├── gpu.zig                       # Multi-distro GPU accelerator (CUDA Driver API + SIMD CPU fallback)
-        ├── screenGUI.zig                 # Zero-dependency Pure Zig Native X11 Wire Protocol Window Engine
-        └── mario_gpu_renderer.zig        # Low-level multi-core GPU/SIMD NES scanline rasterizer for Mario Bros
+        ├── screenGUI.zig                 # Zero-dependency Pure Zig Native X11/Wayland Wire Protocol Window Engine
+        └── GUIEngine.zig                 # Multi-purpose media engine, 2D canvas, sprite blitter, and game rasterizer
 ```
 
 ---
@@ -150,7 +150,7 @@ SundaPy switches behavior based on the first line of the Python script:
    - Strict safety: The compiler automatically injects `@setRuntimeSafety(true)`. Integer overflows panic immediately rather than wrapping silently.
    - Mathematical operators compile down to bare-metal CPU hardware instructions.
 
-### B. GPU Computing Engine (`sundapy_std/gpu.zig`, `gpu_types.zig` & `mario_gpu_renderer.zig`)
+### B. GPU Computing Engine (`sundapy_std/gpu.zig`, `gpu_types.zig` & `GUIEngine.zig`)
 
 SundaPy features a native GPU parallel programming model:
 - **Zero Compilation Overhead**: GPU compute scripts are written in standard Python syntax.
@@ -160,15 +160,15 @@ SundaPy features a native GPU parallel programming model:
 - **Kernel Abstraction**: Functions decorated with `@gpu.kernel` can be invoked with multidimensional grid and block dimensions: `kernel[grid_dim, block_dim](args...)`.
 - **Multidimensional Thread Indexing**: `gpu.threadIdx.x`, `gpu.blockIdx.x`, `gpu.blockDim.x`, `gpu.gridDim.x` (along with `.y` and `.z`).
 - **Native CPU Fallback**: If no supported GPU hardware/driver is present, it automatically executes on a high-speed multi-core CPU SIMD engine without failing.
-- **Dedicated Game Graphics Pipeline**: `gpu.render_mario_frame(...)` provides high-throughput scanline rasterization directly on GPU/SIMD multi-core buffers.
+- **Dedicated Media & Game Graphics Pipeline**: High-throughput scanline rasterization directly on GPU/SIMD multi-core buffers via `GUIEngine` and `gpu.render_game_frame(...)`.
 
 ### C. Zero-Dependency Native Desktop GUI (`sundapy_std/screenGUI.zig`)
 
 A built-in GUI engine created entirely in pure Zig without external dependencies:
 - **No External C Libraries**: 0 bytes of Xlib, XCB, Wayland, SDL, GLFW, GTK, or Qt.
-- **Pure X11 Wire Protocol Client**: Connects directly to the Linux Unix domain socket `/tmp/.X11-unix/X{display}`.
-- **Authentication**: Natively reads and parses binary `MIT-MAGIC-COOKIE-1` from `$XAUTHORITY` / `~/.Xauthority`.
-- **Window Management**: Implements `CreateWindow`, `ChangeProperty` (`WM_NAME`, `WM_PROTOCOLS`, `WM_DELETE_WINDOW`), `CreateGC`, and `MapWindow`.
+- **Pure X11/Wayland Wire Protocol Client**: Connects directly to the Linux Unix domain socket `/tmp/.X11-unix/X{display}` (natively supporting Native X Server and Wayland compositors via Xwayland).
+- **Authentication**: Natively reads and parses binary `MIT-MAGIC-COOKIE-1` from `$XAUTHORITY` / `~/.Xauthority`, with seamless fallback for unauthenticated local sockets.
+- **Window Management**: Implements `CreateWindow`, `ChangeProperty` (`WM_NAME`, `_NET_WM_NAME`, `_NET_WM_PID`, `WM_PROTOCOLS`, `WM_DELETE_WINDOW`), `CreateGC`, and `MapWindow`.
 - **High-Framerate Blitting**: Uses chunked `PutImage` requests (ZPixmap 24-bit TrueColor / 32bpp BGR0) split into scanline strips to respect 16-bit X11 word limits, rendering frames in < 2.5 ms.
 - **Event Handling**: Non-blocking `recvfrom(MSG.DONTWAIT)` event loop processes window close requests (`WM_DELETE_WINDOW`) and keyboard events (Keysym: Esc, 'q', 'r', arrows, space, shift, etc.).
 - **Real-Time Telemetry**: Built-in heads-up display tracking FPS, GPU usage %, CPU usage %, RSS memory, render time, and display time.
@@ -185,7 +185,7 @@ A complete, ultra-optimized 1-level Super Mario Bros World 1-1 game suite built 
   - `marioBros/entities.py`: Goomba patrol AI with tile collisions and pit turnaround, bouncing coin animations, and zero-allocation entity array pools.
   - `marioBros/ai_bot.py`: Frame-perfect speedrunner autopilot capable of clearing World 1-1 flawlessly, with seamless zero-latency human keyboard override.
   - `marioBros/main.py`: Interactive and benchmark game loop reporting comprehensive telemetry (Render Time, Screen Blit Time, FPS, GPU load, CPU usage, RSS footprint).
-  - `src/datatype/sundapy_std/mario_gpu_renderer.zig`: Hardware-accelerated scanline rasterizer producing 240x224 NES framebuffers upscaled 4x to 960x480 native desktop windows with zero blit tearing.
+  - `src/datatype/sundapy_std/GUIEngine.zig`: Multi-purpose media & game engine rasterizer producing 240x224 NES framebuffers upscaled 4x to 960x480 native desktop windows with zero blit tearing.
 
 ### E. Package Manager (`sundafetch` - `src/fetcher/main.zig`)
 

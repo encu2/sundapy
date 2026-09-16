@@ -965,10 +965,10 @@ pub fn render_mario_frame(
         hud_dyn,
         time_dyn,
     };
-    return @import("datatype/sundapy_std/mario_gpu_renderer.zig").renderMarioFrame(std.heap.c_allocator, &args, null);
+    return @import("GUIEngine.zig").renderGameScene(std.heap.c_allocator, &args, null);
 }
 
-pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
+pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "alloc")) return @import("datatype/dynamic.zig").toDynamicFunc(alloc);
     if (std.mem.eql(u8, attr, "Buffer")) return @import("datatype/dynamic.zig").toDynamicFunc(Buffer);
     if (std.mem.eql(u8, attr, "to_device")) return @import("datatype/dynamic.zig").toDynamicFunc(to_device);
@@ -987,6 +987,7 @@ pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "dot_product")) return @import("datatype/dynamic.zig").toDynamicFunc(dot_product);
     if (std.mem.eql(u8, attr, "render_4d_object")) return @import("datatype/dynamic.zig").toDynamicFunc(render_4d_object);
     if (std.mem.eql(u8, attr, "render_mario_frame")) return Dynamic{ .value = .{ .func_type_slice = render_mario_frame } };
+    if (std.mem.eql(u8, attr, "render_game_frame")) return Dynamic{ .value = .{ .func_type_slice = render_mario_frame } };
     if (std.mem.eql(u8, attr, "parallel_for")) return @import("datatype/dynamic.zig").toDynamicFunc(parallel_for);
     if (std.mem.eql(u8, attr, "cpu_parallel")) return @import("datatype/dynamic.zig").toDynamicFunc(cpu_parallel);
     if (std.mem.eql(u8, attr, "global_id")) return @import("datatype/dynamic.zig").toDynamicFunc(global_id);

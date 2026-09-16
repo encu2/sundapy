@@ -147,15 +147,33 @@ fn internAtom(fd: std.posix.fd_t, atom_name: []const u8) ?u32 {
 }
 
 fn initX11Window() bool {
-    const disp_env = getenv("DISPLAY") orelse return false;
-    const disp_str = std.mem.span(disp_env);
-    if (disp_str.len == 0) return false;
-
     var disp_num: usize = 0;
-    if (std.mem.indexOfScalar(u8, disp_str, ':')) |colon_idx| {
-        const rest = disp_str[colon_idx + 1 ..];
-        const dot_idx = std.mem.indexOfScalar(u8, rest, '.') orelse rest.len;
-        disp_num = std.fmt.parseInt(usize, rest[0..dot_idx], 10) catch 0;
+    var has_display = false;
+
+    if (getenv("DISPLAY")) |val| {
+        const disp_str = std.mem.span(val);
+        if (disp_str.len > 0) {
+            if (std.mem.indexOfScalar(u8, disp_str, ':')) |colon_idx| {
+                const rest = disp_str[colon_idx + 1 ..];
+                const dot_idx = std.mem.indexOfScalar(u8, rest, '.') orelse rest.len;
+                disp_num = std.fmt.parseInt(usize, rest[0..dot_idx], 10) catch 0;
+                has_display = true;
+            }
+        }
+    }
+
+    // Fallback for Wayland environments when DISPLAY is unset:
+    // Wayland compositors (GNOME, KDE, Hyprland, Sway) run Xwayland on :0 or :1
+    if (!has_display) {
+        if (std.os.linux.access("/tmp/.X11-unix/X0", 0) == 0) {
+            disp_num = 0;
+            has_display = true;
+        } else if (std.os.linux.access("/tmp/.X11-unix/X1", 0) == 0) {
+            disp_num = 1;
+            has_display = true;
+        } else {
+            return false;
+        }
     }
 
     var socket_path_buf: [64]u8 = undefined;
@@ -294,6 +312,32 @@ fn initX11Window() bool {
         std.mem.writeInt(u32, cp[20..24], @intCast(title_slice.len), .little);
         @memcpy(cp[24 .. 24 + title_slice.len], title_slice);
         _ = std.os.linux.write(fd, cp.ptr, cp.len);
+
+        // Also set modern EWMH _NET_WM_NAME (UTF8_STRING) for Wayland & modern compositors
+        const net_wm_name = internAtom(fd, "_NET_WM_NAME");
+        const utf8_string = internAtom(fd, "UTF8_STRING");
+        if (net_wm_name != null and utf8_string != null) {
+            std.mem.writeInt(u32, cp[8..12], net_wm_name.?, .little);
+            std.mem.writeInt(u32, cp[12..16], utf8_string.?, .little);
+            _ = std.os.linux.write(fd, cp.ptr, cp.len);
+        }
+
+        // Set _NET_WM_PID so Wayland compositor identifies client process
+        const net_wm_pid = internAtom(fd, "_NET_WM_PID");
+        if (net_wm_pid) |pid_atom| {
+            var pid_buf: [28]u8 = undefined;
+            @memset(&pid_buf, 0);
+            pid_buf[0] = 18; // ChangeProperty
+            pid_buf[1] = 0;
+            std.mem.writeInt(u16, pid_buf[2..4], 7, .little);
+            std.mem.writeInt(u32, pid_buf[4..8], x11_win_id, .little);
+            std.mem.writeInt(u32, pid_buf[8..12], pid_atom, .little);
+            std.mem.writeInt(u32, pid_buf[12..16], 6, .little); // CARDINAL
+            pid_buf[16] = 32; // format 32
+            std.mem.writeInt(u32, pid_buf[20..24], 1, .little);
+            std.mem.writeInt(u32, pid_buf[24..28], @intCast(std.os.linux.getpid()), .little);
+            _ = std.os.linux.write(fd, &pid_buf, 28);
+        }
     }
 
     // Set WM_PROTOCOLS to include WM_DELETE_WINDOW
@@ -904,7 +948,7 @@ pub fn _is_abi() void {}
 
 pub fn __sundapy_module_init() !void {}
 
-pub fn builtin_getattr(_: *const @This(), attr: []const u8) anyerror!Dynamic {
+pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "init")) return @import("datatype/dynamic.zig").toDynamicFunc(init);
     if (std.mem.eql(u8, attr, "render_buffer")) return @import("datatype/dynamic.zig").toDynamicFunc(render_buffer);
     if (std.mem.eql(u8, attr, "record_render_time")) return @import("datatype/dynamic.zig").toDynamicFunc(record_render_time);

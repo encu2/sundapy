@@ -1,6 +1,7 @@
 # =============================================================================
 #   SUNDAPY SUPER MARIO BROS - WORLD 1-1 (120 FPS LOW-LEVEL GPU ENGINE)
 # =============================================================================
+import GUIEngine
 import gpu
 import screenGUI
 import time
@@ -32,8 +33,8 @@ def main():
     TOTAL_PIXELS = WIDTH * HEIGHT * CHANNELS
 
     print("\nAllocating High-Performance GPU Frame Buffer (", WIDTH, "x", HEIGHT, "x 3 RGB)...")
-    frame_buffer = gpu.alloc(TOTAL_PIXELS)
-    print("GPU Buffer allocated successfully. Buffer size:", len(frame_buffer))
+    frame_buffer = GUIEngine.create_surface(WIDTH, HEIGHT)
+    print("GPU Buffer allocated successfully via GUIEngine. Buffer size:", len(frame_buffer))
 
     # 3. Initialize Native Desktop X11 Window (Upscaled 3x to 768x720)
     print("\nInitializing screenGUI Desktop Window (Target:", TARGET_FPS, "FPS)...")
@@ -117,7 +118,7 @@ def main():
 
         # G. Measure GPU Render Calculation Time
         t_r_start = time.time()
-        gpu.render_mario_frame(
+        GUIEngine.render_game_scene(
             frame_buffer,
             WIDTH,
             HEIGHT,

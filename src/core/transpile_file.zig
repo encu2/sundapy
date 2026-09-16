@@ -133,6 +133,13 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                     }
                 }
             }
+            if (std.mem.eql(u8, mod, "gpu")) {
+                inline for (embedded.files) |entry| {
+                    if (std.mem.eql(u8, entry[0], "sundapy_std/GUIEngine.zig")) {
+                        cwd.writeFile(io, .{ .sub_path = ".cache/src/GUIEngine.zig", .data = entry[1] }) catch {};
+                    }
+                }
+            }
         } else {
             const mod_file = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{resolved_dir, mod_slash});
             
