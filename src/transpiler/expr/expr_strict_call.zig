@@ -5,23 +5,23 @@ const Transpiler = @import("../transpiler.zig").Transpiler;
 pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
     if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "range")) {
         if (c.args.items.len == 1) {
-            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = 0, .stop = ", .{});
+            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = 0, .stop = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[0]);
-            try self.emit(", .step = 1 }} }} }}", .{});
+            try self.emit(").value.i64_type), .step = 1 }} }} }}", .{});
         } else if (c.args.items.len == 2) {
-            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = ", .{});
+            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[0]);
-            try self.emit(", .stop = ", .{});
+            try self.emit(").value.i64_type), .stop = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[1]);
-            try self.emit(", .step = 1 }} }} }}", .{});
+            try self.emit(").value.i64_type), .step = 1 }} }} }}", .{});
         } else if (c.args.items.len == 3) {
-            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = ", .{});
+            try self.emit("Dynamic{{ .value = .{{ .range_type = .{{ .start = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[0]);
-            try self.emit(", .stop = ", .{});
+            try self.emit(").value.i64_type), .stop = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[1]);
-            try self.emit(", .step = ", .{});
+            try self.emit(").value.i64_type), .step = @intCast(dynamic.Dynamic.fromAny(", .{});
             try self.transpileExprStrict(c.args.items[2]);
-            try self.emit(" }} }} }}", .{});
+            try self.emit(").value.i64_type) }} }} }}", .{});
         }
     } else if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "len")) {
         try self.emit("(", .{});
@@ -142,7 +142,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 try self.emit("        var _args_arr = [_]Dynamic{{", .{});
                 for (c.args.items, 0..) |arg, idx| {
                     if (self.is_strict) {
-                        try self.transpileExprStrict(arg);
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
                     } else {
                         try self.transpileExpr(arg);
                     }
@@ -154,7 +154,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                     for (c.kwargs.items) |kw| {
                         try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
                         if (self.is_strict) {
-                            try self.transpileExprStrict(kw.value);
+                            try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
                         } else {
                             try self.transpileExpr(kw.value);
                         }
@@ -183,7 +183,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 try self.emit("            var _args_arr = [_]Dynamic{{", .{});
                 for (c.args.items, 0..) |arg, idx| {
                     if (self.is_strict) {
-                        try self.transpileExprStrict(arg);
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
                     } else {
                         try self.transpileExpr(arg);
                     }
@@ -195,7 +195,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                     for (c.kwargs.items) |kw| {
                         try self.emit("            _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
                         if (self.is_strict) {
-                            try self.transpileExprStrict(kw.value);
+                            try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
                         } else {
                             try self.transpileExpr(kw.value);
                         }
@@ -244,7 +244,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             try self.emit("        var _args_arr = [_]Dynamic{{", .{});
             for (c.args.items, 0..) |arg, idx| {
                 if (self.is_strict) {
-                    try self.transpileExprStrict(arg);
+                    try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(arg); try self.emit(")", .{});
                 } else {
                     try self.transpileExpr(arg);
                 }
@@ -257,7 +257,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
                 for (c.kwargs.items) |kw| {
                     try self.emit("        _kwargs_dict.setDynamicItem(dynamic.Dynamic.initStr(\"{s}\"), ", .{kw.key});
                     if (self.is_strict) {
-                        try self.transpileExprStrict(kw.value);
+                        try self.emit("Dynamic.fromAny(", .{}); try self.transpileExprStrict(kw.value); try self.emit(")", .{});
                     } else {
                         try self.transpileExpr(kw.value);
                     }

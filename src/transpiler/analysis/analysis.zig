@@ -14,7 +14,7 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             if (r.value) |v| return isRecursive(v, func_name);
             return false;
         },
-        .if_stmt, .while_stmt, .for_stmt, .match_stmt => return false,
+        .if_stmt, .while_stmt, .for_stmt, .match_stmt, .with_stmt => return false,
         .call => |c| {
             if (isRecursive(c.callee, func_name)) return true;
             for (c.args.items) |arg| {
@@ -33,6 +33,8 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
         .setattr => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name),
         .subscript => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name),
         .subscript_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.index, func_name) or isRecursive(s.value, func_name),
+        .slice => |s| return isRecursive(s.target, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
+        .slice_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
         .yield_stmt => |y| return isRecursive(y.value, func_name),
         .list_expr => |l| {
             for (l.items.items) |item| {
@@ -135,6 +137,10 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
                 for (case_branch.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
             }
         },
+        .with_stmt => |w| {
+            try collectClassFields(allocator, w.context_expr, fields);
+            for (w.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
+        },
         .for_stmt => |f| {
             try collectClassFields(allocator, f.iterable, fields);
             for (f.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
@@ -164,6 +170,19 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
         .subscript_assign => |s| {
             try collectClassFields(allocator, s.target, fields);
             try collectClassFields(allocator, s.index, fields);
+            try collectClassFields(allocator, s.value, fields);
+        },
+        .slice => |s| {
+            try collectClassFields(allocator, s.target, fields);
+            if (s.start) |n| try collectClassFields(allocator, n, fields);
+            if (s.stop) |n| try collectClassFields(allocator, n, fields);
+            if (s.step) |n| try collectClassFields(allocator, n, fields);
+        },
+        .slice_assign => |s| {
+            try collectClassFields(allocator, s.target, fields);
+            if (s.start) |n| try collectClassFields(allocator, n, fields);
+            if (s.stop) |n| try collectClassFields(allocator, n, fields);
+            if (s.step) |n| try collectClassFields(allocator, n, fields);
             try collectClassFields(allocator, s.value, fields);
         },
         .assign => |a| try collectClassFields(allocator, a.value, fields),

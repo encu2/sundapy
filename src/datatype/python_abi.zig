@@ -195,8 +195,8 @@ pub const PikaPython = struct {
     pub fn callObject(func: *anyopaque, alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) !Dynamic {
         const _gstate = fn_PyGILState_Ensure();
         defer fn_PyGILState_Release(_gstate);
-        _ = alloc;
-        var args_tuple: ?*anyopaque = null;
+        var args_tuple: ?*anyopaque = fn_PyTuple_New(@intCast(args.len));
+        if (args_tuple == null) return error.PythonError;
         if (args.len > 0) {
             args_tuple = fn_PyTuple_New(@intCast(args.len));
             if (args_tuple == null) return error.PythonError;
@@ -207,17 +207,31 @@ pub const PikaPython = struct {
             }
         }
 
-        const kwargs_dict: ?*anyopaque = null;
-        if (kwargs) |_| {
-            // kwargs_dict = fn_PyDict_New();
-            // TODO: Populate dict from kwargs Dynamic
+        var kwargs_dict: ?*anyopaque = null;
+        if (kwargs) |kw| {
+            if (kw.value == .dict_type) {
+                kwargs_dict = fn_PyDict_New();
+                var it = kw.value.dict_type.map.iterator();
+                while (it.next()) |entry| {
+                    const k_str = entry.key_ptr.*;
+                    const v_obj = dynamicToPyObject(entry.value_ptr.*);
+                    if (v_obj) |v| {
+                        var c_str = alloc.alloc(u8, k_str.len + 1) catch continue;
+                        defer alloc.free(c_str);
+                        @memcpy(c_str[0..k_str.len], k_str);
+                        c_str[k_str.len] = 0;
+                        _ = fn_PyDict_SetItemString(kwargs_dict.?, c_str.ptr, v);
+                        fn_Py_DecRef(v);
+                    }
+                }
+            }
         }
 
         var res: ?*anyopaque = null;
         if (kwargs_dict != null) {
-            res = fn_PyObject_Call(func, args_tuple, kwargs_dict);
+            res = fn_PyObject_Call(func, args_tuple.?, kwargs_dict);
         } else {
-            res = fn_PyObject_CallObject(func, args_tuple);
+            res = fn_PyObject_CallObject(func, args_tuple.?);
         }
 
         if (args_tuple) |t| {

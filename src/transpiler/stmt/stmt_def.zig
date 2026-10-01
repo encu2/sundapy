@@ -74,6 +74,11 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
             return error.MissingTypeAnnotation;
         }
         self.indent_level += 1;
+        if (self.is_strict) {
+            std.debug.print("Emitting setRuntimeSafety for {s}\n", .{d.name});
+            try self.emitIndent();
+            try self.emit("@setRuntimeSafety(true);\n", .{});
+        }
     }
     
 
@@ -86,6 +91,9 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
     }
     for (d.params.items) |p| {
         try declared_vars.put(p.name, true);
+        if (p.type_ann) |t| {
+            try self.var_types.put(p.name, t);
+        }
     }
     
     for (d.body.items) |body_stmt| {

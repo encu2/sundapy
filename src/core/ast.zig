@@ -8,6 +8,7 @@ pub const KeywordArg = struct {
 pub const Param = struct {
     name: []const u8,
     type_ann: ?[]const u8,
+    default_value: ?*Node = null,
 };
 
 pub const ElifBranch = struct {
@@ -37,16 +38,19 @@ pub const Node = union(enum) {
     setattr: struct { target: *Node, attr: []const u8, value: *Node },
     subscript: struct { target: *Node, index: *Node },
     subscript_assign: struct { target: *Node, index: *Node, value: *Node },
+    slice: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node },
+    slice_assign: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node, value: *Node },
     ternary_expr: struct { condition: *Node, true_expr: *Node, false_expr: *Node },
     if_stmt: struct { condition: *Node, then_branch: std.ArrayList(*Node), elifs: std.ArrayList(ElifBranch), else_branch: ?std.ArrayList(*Node) },
     while_stmt: struct { condition: *Node, body: std.ArrayList(*Node) },
+    with_stmt: struct { context_expr: *Node, as_name: ?[]const u8, body: std.ArrayList(*Node), is_async: bool },
     for_stmt: struct { iterator: []const u8, iterable: *Node, body: std.ArrayList(*Node) },
-    def_stmt: struct { name: []const u8, params: std.ArrayList(Param), return_type: ?[]const u8, body: std.ArrayList(*Node), is_strict: bool, is_async: bool },
-    class_stmt: struct { name: []const u8, base_class: ?[]const u8, methods: std.ArrayList(*Node) },
+    def_stmt: struct { name: []const u8, params: std.ArrayList(Param), return_type: ?[]const u8, body: std.ArrayList(*Node), is_strict: bool, is_async: bool, decorators: std.ArrayList(*Node) },
+    class_stmt: struct { name: []const u8, base_class: ?[]const u8, methods: std.ArrayList(*Node), decorators: std.ArrayList(*Node) },
     return_stmt: struct { value: ?*Node },
     yield_stmt: struct { value: *Node },
     list_expr: struct { items: std.ArrayList(*Node) },
-    list_comp: struct { expression: *Node, target: []const u8, iterable: *Node, condition: ?*Node },
+    list_comp: struct { expression: *Node, target: []const u8, iterable: *Node, condition: ?*Node, is_async: bool },
     dict_expr: struct { keys: std.ArrayList(*Node), values: std.ArrayList(*Node) },
     import_stmt: struct { name: []const u8, alias: ?[]const u8 },
     from_import: struct { module: []const u8, name: []const u8, alias: ?[]const u8 },

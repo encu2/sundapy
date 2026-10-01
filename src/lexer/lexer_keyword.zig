@@ -4,6 +4,7 @@ const TokenType = token_mod.TokenType;
 
 pub fn matchKeyword(lexeme: []const u8) TokenType {
     if (std.mem.eql(u8, lexeme, "if")) return .KeywordIf;
+    if (std.mem.eql(u8, lexeme, "with")) return .KeywordWith;
     if (std.mem.eql(u8, lexeme, "elif")) return .KeywordElif;
     if (std.mem.eql(u8, lexeme, "else")) return .KeywordElse;
     if (std.mem.eql(u8, lexeme, "lambda")) return .KeywordLambda;

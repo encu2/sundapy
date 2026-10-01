@@ -87,8 +87,8 @@ pub fn printArg(val: anytype) void {
     const T = @TypeOf(val);
     if (T == Dynamic) {
         val.print();
-    } else if (T == []const u8 or T == *const [0:0]u8 or @typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one and @typeInfo(@typeInfo(T).pointer.child) == .array and @typeInfo(@typeInfo(T).pointer.child).array.child == u8) {
-        // String literal
+    } else if (T == []const u8 or T == [:0]const u8 or (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(T).pointer.child == u8) or (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one and @typeInfo(@typeInfo(T).pointer.child) == .array and @typeInfo(@typeInfo(T).pointer.child).array.child == u8)) {
+        // String literal or slice
         std.debug.print("{s}", .{val});
     } else if (T == bool) {
         std.debug.print("{s}", .{if (val) "True" else "False"});

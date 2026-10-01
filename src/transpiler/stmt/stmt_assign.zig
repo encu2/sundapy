@@ -4,13 +4,23 @@ const Transpiler = @import("../transpiler.zig").Transpiler;
 const mapType = @import("../transpiler.zig").Transpiler.mapType;
 
 pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
+    if (a.type_ann) |t| {
+        try self.var_types.put(a.target, t);
+    }
+    const is_dyn = self.isDynamicTarget(a.target, a.type_ann);
     const already_declared = declared_vars.contains(a.target);
     if (!already_declared) {
         try declared_vars.put(a.target, true);
         if (self.is_strict) {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                try self.transpileExprStrict(a.value);
+                if (is_dyn) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    try self.transpileExprStrict(a.value);
+                }
             } else {
                 std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
                 return error.MissingTypeAnnotation;
@@ -18,7 +28,13 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         } else {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                try self.transpileExprStrict(a.value);
+                if (is_dyn) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    try self.transpileExprStrict(a.value);
+                }
             } else {
                 // Use escape analysis to avoid Dynamic if possible!
                 if (self.escape_analyzer.variables.get(a.target)) |v_info| {
@@ -43,7 +59,13 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
     } else {
         try self.emit("{s} = ", .{ a.target });
         if (a.type_ann != null or self.is_strict) {
-            try self.transpileExprStrict(a.value);
+            if (is_dyn) {
+                try self.emit("Dynamic.fromAny(", .{});
+                try self.transpileExprStrict(a.value);
+                try self.emit(")", .{});
+            } else {
+                try self.transpileExprStrict(a.value);
+            }
         } else {
             var is_stack_primitive = false;
             if (self.escape_analyzer.variables.get(a.target)) |v_info| {
@@ -70,8 +92,16 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
 pub fn transpileConstAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
     try declared_vars.put(a.target, true);
     if (a.type_ann) |t| {
+        try self.var_types.put(a.target, t);
+        const is_dyn = self.isDynamicTarget(a.target, a.type_ann);
         try self.emit("const {s}: {s} = ", .{ a.target, mapType(t) });
-        try self.transpileExprStrict(a.value);
+        if (is_dyn) {
+            try self.emit("Dynamic.fromAny(", .{});
+            try self.transpileExprStrict(a.value);
+            try self.emit(")", .{});
+        } else {
+            try self.transpileExprStrict(a.value);
+        }
     } else {
         if (self.is_strict) {
             std.debug.print("Strict Mode Error: Constant '{s}' requires explicit static type annotation.\n", .{a.target});

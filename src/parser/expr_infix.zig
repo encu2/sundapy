@@ -43,9 +43,47 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
     
     if (t == .LBracket) {
         self.advance();
-        const index = try self.parseExpr(.none);
+        var slice_start: ?*ast.Node = null;
+        var slice_stop: ?*ast.Node = null;
+        var slice_step: ?*ast.Node = null;
+        var is_slice = false;
+
+        if (self.current.type == .Colon) {
+            is_slice = true;
+            self.advance();
+            if (self.current.type != .Colon and self.current.type != .RBracket) {
+                slice_stop = try self.parseExpr(.none);
+            }
+            if (self.current.type == .Colon) {
+                self.advance();
+                if (self.current.type != .RBracket) {
+                    slice_step = try self.parseExpr(.none);
+                }
+            }
+        } else {
+            const first = try self.parseExpr(.none);
+            if (self.current.type == .Colon) {
+                is_slice = true;
+                slice_start = first;
+                self.advance();
+                if (self.current.type != .Colon and self.current.type != .RBracket) {
+                    slice_stop = try self.parseExpr(.none);
+                }
+                if (self.current.type == .Colon) {
+                    self.advance();
+                    if (self.current.type != .RBracket) {
+                        slice_step = try self.parseExpr(.none);
+                    }
+                }
+            } else {
+                try self.expect(.RBracket);
+                node.* = .{ .subscript = .{ .target = left, .index = first } };
+                return node;
+            }
+        }
+
         try self.expect(.RBracket);
-        node.* = .{ .subscript = .{ .target = left, .index = index } };
+        node.* = .{ .slice = .{ .target = left, .start = slice_start, .stop = slice_stop, .step = slice_step } };
         return node;
     }
 

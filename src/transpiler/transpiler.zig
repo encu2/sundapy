@@ -16,6 +16,7 @@ pub const Transpiler = struct {
     class_asts: std.StringHashMap(*ast.Node),
     imported_modules: std.ArrayList([]const u8),
     module_aliases: std.StringHashMap([]const u8),
+    var_types: std.StringHashMap([]const u8),
     is_root: bool,
     escape_analyzer: *@import("analysis/escape.zig").EscapeAnalyzer,
     
@@ -37,6 +38,7 @@ pub const Transpiler = struct {
             .class_asts = std.StringHashMap(*ast.Node).init(allocator),
             .imported_modules = .empty,
             .module_aliases = std.StringHashMap([]const u8).init(allocator),
+            .var_types = std.StringHashMap([]const u8).init(allocator),
             .is_root = is_root,
             .escape_analyzer = ea,
             .depth = d_cnt,
@@ -49,6 +51,7 @@ pub const Transpiler = struct {
         self.class_asts.deinit();
         self.imported_modules.deinit(self.allocator);
         self.module_aliases.deinit();
+        self.var_types.deinit();
         self.escape_analyzer.deinit();
         self.allocator.destroy(self.escape_analyzer);
     }
@@ -149,6 +152,16 @@ pub const Transpiler = struct {
         if (std.mem.eql(u8, python_type, "dict")) return "Dynamic";
         if (std.mem.eql(u8, python_type, "None")) return "void";
         return python_type;
+    }
+
+    pub fn isDynamicTarget(self: *Transpiler, target: []const u8, type_ann: ?[]const u8) bool {
+        if (type_ann) |t| {
+            if (std.mem.eql(u8, t, "Dynamic")) return true;
+        }
+        if (self.var_types.get(target)) |t| {
+            if (std.mem.eql(u8, t, "Dynamic")) return true;
+        }
+        return false;
     }
 
     pub const isSafeNode = @import("analysis/analysis.zig").isSafeNode;

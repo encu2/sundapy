@@ -57,7 +57,7 @@ pub const Parser = struct {
         if (self.current.type == t) {
             self.advance();
         } else {
-            std.debug.print("ParseError in expect. Expected {any}, got {any} '{s}'\n", .{t, self.current.type, self.current.lexeme});
+            std.debug.print("ParseError on line {d} (expect): Expected {any}, got {any} '{s}'\n", .{self.current.line, t, self.current.type, self.current.lexeme});
             return error.ParseError;
         }
     }
@@ -97,7 +97,7 @@ pub const Parser = struct {
         if (self.match(.Semicolon)) return;
         if (self.current.type == .EOF or self.current.type == .Dedent) return;
         
-        std.debug.print("ParseError: expected newline or semicolon at end of statement, got {any}\n", .{self.current.type});
+        std.debug.print("ParseError on line {d}: expected newline or semicolon at end of statement, got {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
         return error.ParseError;
     }
 

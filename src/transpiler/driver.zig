@@ -34,6 +34,35 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     
     try self.emit("const std = @import(\"std\");\n\n", .{});
     try self.emit("/// IMPORTS_PLACEHOLDER\n\n", .{});
+    try self.out.appendSlice(self.allocator,
+        \\fn printStrictVal(_sundapy_val: anytype) void {
+        \\    const _sundapy_T = @TypeOf(_sundapy_val);
+        \\    if (@typeInfo(_sundapy_T) == .@"struct" and @hasDecl(_sundapy_T, "print")) {
+        \\        _sundapy_val.print();
+        \\    } else if (_sundapy_T == []const u8 or _sundapy_T == [:0]const u8 or (@typeInfo(_sundapy_T) == .pointer and @typeInfo(_sundapy_T).pointer.size == .slice and @typeInfo(_sundapy_T).pointer.child == u8) or (@typeInfo(_sundapy_T) == .pointer and @typeInfo(_sundapy_T).pointer.size == .one and @typeInfo(@typeInfo(_sundapy_T).pointer.child) == .array and @typeInfo(@typeInfo(_sundapy_T).pointer.child).array.child == u8)) {
+        \\        std.debug.print("{s}", .{_sundapy_val});
+        \\    } else if (_sundapy_T == bool) {
+        \\        std.debug.print("{s}", .{if (_sundapy_val) "True" else "False"});
+        \\    } else if (_sundapy_T == void) {
+        \\        std.debug.print("None", .{});
+        \\    } else {
+        \\        std.debug.print("{any}", .{_sundapy_val});
+        \\    }
+        \\}
+        \\
+        \\fn printStrict(_sundapy_args: anytype) void {
+        \\    const _sundapy_fields = @typeInfo(@TypeOf(_sundapy_args)).@"struct".fields;
+        \\    inline for (_sundapy_fields, 0..) |_sundapy_field, _sundapy_i| {
+        \\        printStrictVal(@field(_sundapy_args, _sundapy_field.name));
+        \\        if (_sundapy_i < _sundapy_fields.len - 1) {
+        \\            std.debug.print(" ", .{});
+        \\        }
+        \\    }
+        \\    std.debug.print("\n", .{});
+        \\}
+        \\
+        \\
+    );
     
     for (program.items) |stmt| {
         if (stmt.* == .import_stmt) {
@@ -75,6 +104,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                 try global_vars.put(a.target, true);
                 if (self.is_strict) {
                     if (a.type_ann) |t| {
+                        try self.var_types.put(a.target, t);
                         try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
                         std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
@@ -82,16 +112,19 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                     }
                 } else {
                     if (a.type_ann) |t| {
+                        try self.var_types.put(a.target, t);
                         try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
                         if (self.escape_analyzer.variables.get(a.target)) |v_info| {
                             if (v_info.class == .stack and v_info.is_primitive) {
                                 // Use inferred primitive type for global
                                 const t = self.escape_analyzer.primitiveTypeString(a.value);
+                                try self.var_types.put(a.target, t);
                                 try self.emit("var {s}: {s} = undefined;\n", .{a.target, t});
                                 continue;
                             }
                         }
+                        try self.var_types.put(a.target, "Dynamic");
                         try self.emit("var {s}: Dynamic = undefined;\n", .{a.target});
                     }
                 }
@@ -124,6 +157,10 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     // For python-like scripts, top level statements must be in __sundapy_module_init
     try self.emit("pub fn __sundapy_module_init() !void {{\n", .{});
     self.indent_level += 1;
+    if (self.is_strict) {
+        try self.emitIndent();
+        try self.emit("@setRuntimeSafety(true);\n", .{});
+    }
     try self.emitIndent();
     try self.emit("alloc = std.heap.page_allocator;\n", .{});
 

@@ -6,12 +6,7 @@ const mapType = @import("../transpiler.zig").Transpiler.mapType;
 pub fn transpileCall(self: *Transpiler, c: anytype, node: *ast.Node) !void {
     if (c.callee.* == .identifier and std.mem.eql(u8, c.callee.identifier.name, "print")) {
         if (self.is_strict) {
-            try self.emit("std.debug.print(\"", .{});
-            for (c.args.items, 0..) |_, idx| {
-                try self.emit("{{any}}", .{});
-                if (idx < c.args.items.len - 1) try self.emit(" ", .{});
-            }
-            try self.emit("\\n\", .{{", .{});
+            try self.emit("printStrict(.{{", .{});
         } else {
             try self.emit("dynamic.print(.{{", .{});
         }

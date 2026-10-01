@@ -1,14 +1,15 @@
 const std = @import("std");
-const Dynamic = @import("datatype/dynamic.zig").Dynamic;
+const dynamic = @import("datatype/dynamic.zig");
+const Dynamic = dynamic.Dynamic;
 
 pub const Thread = struct {
     target: Dynamic = undefined,
     args: Dynamic = undefined,
     thread: ?std.Thread = null,
     
-    pub fn __init__(self: *Thread, target: Dynamic, args: Dynamic) anyerror!Dynamic {
-        self.target = target;
-        self.args = args;
+    pub fn __init__(self: *Thread, target: anytype, args: anytype) anyerror!Dynamic {
+        self.target = dynamic.Dynamic.fromAny(target);
+        self.args = dynamic.Dynamic.fromAny(args);
         return Dynamic.initNone();
     }
     
@@ -19,9 +20,8 @@ pub const Thread = struct {
                 defer arena.deinit();
                 const alloc = arena.allocator();
                 
-                if (a.value == .list_type and a.value.list_type.items.items.len > 0) {
-                    var args_arr = [_]Dynamic{a.value.list_type.items.items[0]};
-                    _ = try t.builtin_call(alloc, &args_arr, null);
+                if (a.value == .list_type) {
+                    _ = try t.builtin_call(alloc, a.value.list_type.items.items, null);
                 } else {
                     var args_arr = [_]Dynamic{};
                     _ = try t.builtin_call(alloc, &args_arr, null);

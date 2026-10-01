@@ -107,6 +107,37 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
         },
+        .slice => |s| {
+            if (self.try_depth == 0) {
+                try self.emit("try (", .{});
+            } else if (self.try_depth > 0) {
+                try self.emit("((", .{});
+            }
+            try self.transpileExpr(s.target);
+            try self.emit(").getDynamicSlice(", .{});
+            if (s.start) |n| {
+                try self.transpileExpr(n);
+            } else {
+                try self.emit("Dynamic.initNone()", .{});
+            }
+            try self.emit(", ", .{});
+            if (s.stop) |n| {
+                try self.transpileExpr(n);
+            } else {
+                try self.emit("Dynamic.initNone()", .{});
+            }
+            try self.emit(", ", .{});
+            if (s.step) |n| {
+                try self.transpileExpr(n);
+            } else {
+                try self.emit("Dynamic.initNone()", .{});
+            }
+            try self.emit(")", .{});
+            if (self.try_depth > 0) {
+                self.label_counter += 1;
+                try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+            }
+        },
         .getattr => |g| {
             if (self.try_depth == 0) {
                 // Not needed for getattr on structs, but we keep format
