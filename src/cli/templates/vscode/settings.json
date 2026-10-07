@@ -8,7 +8,10 @@
   "python.analysis.diagnosticSeverityOverrides": {
     "reportMissingImports": "none",
     "reportUndefinedVariable": "none",
-    "reportGeneralTypeIssues": "warning"
+    "reportGeneralTypeIssues": "none",
+    "reportReturnType": "none",
+    "reportAssignmentType": "none",
+    "reportArgumentType": "none"
   },
   "files.associations": {
     "*.py": "python"
@@ -18,7 +21,7 @@
   "editor.suggest.preview": true,
   "editor.quickSuggestions": {
     "other": "on",
-    "comments": "off",
-    "strings": "off"
+    "comments": "on",
+    "strings": "on"
   }
 }

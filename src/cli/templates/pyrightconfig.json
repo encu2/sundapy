@@ -1,0 +1,13 @@
+{
+  "stubPath": ".vscode/typings",
+  "extraPaths": [
+    ".vscode/typings"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "none",
+  "reportUndefinedVariable": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportReturnType": "none",
+  "reportAssignmentType": "none",
+  "reportArgumentType": "none"
+}

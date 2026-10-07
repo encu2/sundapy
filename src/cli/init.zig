@@ -9,10 +9,12 @@ const TemplateEntry = struct {
 const templates = [_]TemplateEntry{
     .{ .rel_path = "main.py", .data = @embedFile("templates/main.py"), .skip_if_exists = true },
     .{ .rel_path = "SUNDAPY_GUIDE.md", .data = @embedFile("templates/SUNDAPY_GUIDE.md"), .skip_if_exists = false },
+    .{ .rel_path = "pyrightconfig.json", .data = @embedFile("templates/pyrightconfig.json"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/settings.json", .data = @embedFile("templates/vscode/settings.json"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/tasks.json", .data = @embedFile("templates/vscode/tasks.json"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/sundapy.code-snippets", .data = @embedFile("templates/vscode/sundapy.code-snippets"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/typings/__builtins__.pyi", .data = @embedFile("templates/typings/__builtins__.pyi"), .skip_if_exists = false },
+    .{ .rel_path = ".vscode/typings/builtins.pyi", .data = @embedFile("templates/typings/builtins.pyi"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/typings/gpu.pyi", .data = @embedFile("templates/typings/gpu.pyi"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/typings/screenGUI.pyi", .data = @embedFile("templates/typings/screenGUI.pyi"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/typings/GUIEngine.pyi", .data = @embedFile("templates/typings/GUIEngine.pyi"), .skip_if_exists = false },
