@@ -9,37 +9,7 @@
     "body": [
       "#strict"
     ],
-    "description": "Direktif Kompiler: #strict. Aktifkan di baris paling atas untuk Mode Hardware Native Penuh (Zero-boxing, C/Zig speed, memory safety)."
-  },
-  "SundaPy Strict Compute Skeleton": {
-    "prefix": [
-      "sunda-compute",
-      "strict-skeleton"
-    ],
-    "scope": "python",
-    "body": [
-      "#strict",
-      "import time",
-      "",
-      "def (: ) -> :",
-      "    \"\"\"Fungsi komputasi hardware native di register CPU.\"\"\"",
-      "    total:  = 0",
-      "    i:  = 0",
-      "    while i < :",
-      "        total = total + i",
-      "        i = i + 1",
-      "    return total",
-      "",
-      "def main() -> void:",
-      "    start: i64 = time.time_ns()",
-      "    hasil:  = ()",
-      "    elapsed: i64 = time.time_ns() - start",
-      "    print(\"Hasil :\", hasil)",
-      "    print(\"Waktu :\", elapsed, \"ns\")",
-      "",
-      "main()"
-    ],
-    "description": "Template skrip komputasi #strict lengkap dengan pengukuran waktu nanodetik time.time_ns()."
+    "description": "Direktif Kompiler: #strict. Tulis di baris pertama file .py untuk Mode Kompilasi Hardware Native Penuh (Zero-boxing, C/Zig speed, static typing wajib, memory safety)."
   },
   "SundaPy Linker Directive": {
     "prefix": [
@@ -52,7 +22,7 @@
     "body": [
       "#@link: "
     ],
-    "description": "Direktif Linker: #@link: <libs>. Menautkan compiler SundaPy ke dynamic shared library C (.so) atau library sistem saat kompilasi biner."
+    "description": "Direktif Linker: #@link: <libs>. Menautkan pustaka shared library C (.so) atau library sistem saat proses kompilasi biner."
   },
   "SundaPy Direct C Import": {
     "prefix": [
@@ -67,7 +37,448 @@
       "hasil = .()",
       "print(\"Hasil C:\", hasil)"
     ],
-    "description": "Direct C Header Import (@cImport): Mengimpor file header .h atau pustaka C langsung ke kode SundaPy tanpa runtime wrapper."
+    "description": "Direct C Header Import (@cImport): Mengimpor file header .h atau library C langsung ke kode SundaPy tanpa runtime wrapper."
+  },
+  "SundaPy Keyword If": {
+    "prefix": [
+      "if",
+      "sunda-if"
+    ],
+    "scope": "python",
+    "body": [
+      "if :",
+      "    "
+    ],
+    "description": "Kata Kunci: if. Percabangan logika kondisi dasar. Mengeksekusi blok kode di dalamnya jika kondisi bernilai True (truthy)."
+  },
+  "SundaPy Keyword Elif": {
+    "prefix": [
+      "elif",
+      "sunda-elif"
+    ],
+    "scope": "python",
+    "body": [
+      "elif :",
+      "    "
+    ],
+    "description": "Kata Kunci: elif. Percabangan kondisi alternatif yang dievaluasi berurutan jika kondisi if sebelumnya bernilai False."
+  },
+  "SundaPy Keyword Else": {
+    "prefix": [
+      "else",
+      "sunda-else"
+    ],
+    "scope": "python",
+    "body": [
+      "else:",
+      "    "
+    ],
+    "description": "Kata Kunci: else. Blok percabangan fallback akhir yang dieksekusi jika seluruh kondisi if dan elif sebelumnya bernilai False."
+  },
+  "SundaPy Keyword While": {
+    "prefix": [
+      "while",
+      "sunda-while"
+    ],
+    "scope": "python",
+    "body": [
+      "while :",
+      "    "
+    ],
+    "description": "Kata Kunci: while. Perulangan berbasis kondisi. Di mode #strict, ditranspilasikan langsung ke jump instruction CPU register murni."
+  },
+  "SundaPy Keyword For": {
+    "prefix": [
+      "for",
+      "sunda-for"
+    ],
+    "scope": "python",
+    "body": [
+      "for  in :",
+      "    "
+    ],
+    "description": "Kata Kunci: for. Perulangan iterasi elemen koleksi data (list, tuple, string, range, dict)."
+  },
+  "SundaPy Keyword Def": {
+    "prefix": [
+      "def",
+      "sunda-def"
+    ],
+    "scope": "python",
+    "body": [
+      "def ():",
+      "    \"\"\"\"\"\"",
+      "    "
+    ],
+    "description": "Kata Kunci: def. Mendefinisikan subrutin / fungsi. Di mode #strict, parameter dan nilai balik wajib memiliki anotasi tipe hardware statis."
+  },
+  "SundaPy Keyword Class": {
+    "prefix": [
+      "class",
+      "sunda-class"
+    ],
+    "scope": "python",
+    "body": [
+      "class :",
+      "    def __init__(self):",
+      "        "
+    ],
+    "description": "Kata Kunci: class. Mendefinisikan kelas berorientasi objek (OOP). Mendukung konstruktor __init__, method overriding, dan pewarisan."
+  },
+  "SundaPy Keyword Lambda": {
+    "prefix": [
+      "lambda",
+      "sunda-lambda"
+    ],
+    "scope": "python",
+    "body": [
+      "lambda : "
+    ],
+    "description": "Kata Kunci: lambda. Fungsi anonim inline satu baris untuk callback cepat atau transformasi pemetaan data (map/filter/sorted)."
+  },
+  "SundaPy Keyword Return": {
+    "prefix": [
+      "return",
+      "sunda-return"
+    ],
+    "scope": "python",
+    "body": [
+      "return "
+    ],
+    "description": "Kata Kunci: return. Menghentikan eksekusi subrutin fungsi dan mengembalikan nilai ke pemanggil fungsi."
+  },
+  "SundaPy Keyword Yield": {
+    "prefix": [
+      "yield",
+      "sunda-yield"
+    ],
+    "scope": "python",
+    "body": [
+      "yield "
+    ],
+    "description": "Kata Kunci: yield. Menghasilkan nilai lazy dari generator fungsi secara bertahap tanpa alokasi memori buffer besar di RAM."
+  },
+  "SundaPy Keyword Import": {
+    "prefix": [
+      "import",
+      "sunda-import"
+    ],
+    "scope": "python",
+    "body": [
+      "import "
+    ],
+    "description": "Kata Kunci: import. Mengimpor modul bawaan SundaPy (gpu, screenGUI, time, socket, requests, math, ffi) atau file C header."
+  },
+  "SundaPy Keyword From": {
+    "prefix": [
+      "from",
+      "sunda-from"
+    ],
+    "scope": "python",
+    "body": [
+      "from  import "
+    ],
+    "description": "Kata Kunci: from ... import. Mengimpor simbol fungsi/kelas spesifik dari suatu modul langsung ke scope penamaan lokal."
+  },
+  "SundaPy Keyword As": {
+    "prefix": [
+      "as",
+      "sunda-as"
+    ],
+    "scope": "python",
+    "body": [
+      "as "
+    ],
+    "description": "Kata Kunci: as. Memberikan nama alias pada modul yang diimpor, variabel exception tertangkap, atau context target with."
+  },
+  "SundaPy Keyword Continue": {
+    "prefix": [
+      "continue",
+      "sunda-continue"
+    ],
+    "scope": "python",
+    "body": [
+      "continue"
+    ],
+    "description": "Kata Kunci: continue. Melewati sisa baris kode dalam perulangan saat ini dan langsung melompat ke iterasi loop berikutnya."
+  },
+  "SundaPy Keyword Break": {
+    "prefix": [
+      "break",
+      "sunda-break"
+    ],
+    "scope": "python",
+    "body": [
+      "break"
+    ],
+    "description": "Kata Kunci: break. Menghentikan perulangan (while / for) seketika dan melompat keluar dari blok loop."
+  },
+  "SundaPy Keyword Pass": {
+    "prefix": [
+      "pass",
+      "sunda-pass"
+    ],
+    "scope": "python",
+    "body": [
+      "pass"
+    ],
+    "description": "Kata Kunci: pass. Operasi kosong (no-op) sebagai placeholder sintaks pada fungsi, kelas, atau percabangan yang belum diimplementasikan."
+  },
+  "SundaPy Keyword True": {
+    "prefix": [
+      "True",
+      "sunda-true"
+    ],
+    "scope": "python",
+    "body": [
+      "True"
+    ],
+    "description": "Kata Kunci / Konstanta: True. Nilai logika kebenaran boolean (Benar / 1 di register CPU)."
+  },
+  "SundaPy Keyword False": {
+    "prefix": [
+      "False",
+      "sunda-false"
+    ],
+    "scope": "python",
+    "body": [
+      "False"
+    ],
+    "description": "Kata Kunci / Konstanta: False. Nilai logika kebenaran boolean (Salah / 0 di register CPU)."
+  },
+  "SundaPy Keyword None": {
+    "prefix": [
+      "None",
+      "sunda-none"
+    ],
+    "scope": "python",
+    "body": [
+      "None"
+    ],
+    "description": "Kata Kunci / Konstanta: None. Singleton representasi nilai kosong / null pointer (0x0). Mendukung operator ?? dan ?.."
+  },
+  "SundaPy Keyword In": {
+    "prefix": [
+      "in",
+      "sunda-in"
+    ],
+    "scope": "python",
+    "body": [
+      "in "
+    ],
+    "description": "Kata Kunci / Operator: in. Memeriksa keanggotaan elemen dalam koleksi (misal: x in daftar), atau perulangan for x in daftar."
+  },
+  "SundaPy Keyword Is": {
+    "prefix": [
+      "is",
+      "sunda-is"
+    ],
+    "scope": "python",
+    "body": [
+      "is "
+    ],
+    "description": "Kata Kunci / Operator: is. Pengecekan identitas kesamaan alamat pointer memori (cmp %rax, %rbx dalam 1 siklus CPU)."
+  },
+  "SundaPy Keyword And": {
+    "prefix": [
+      "and",
+      "sunda-and"
+    ],
+    "scope": "python",
+    "body": [
+      "and "
+    ],
+    "description": "Kata Kunci / Operator: and. Operator logika konjungsi DAN (short-circuit). Bernilai True jika kedua operand bernilai truthy."
+  },
+  "SundaPy Keyword Or": {
+    "prefix": [
+      "or",
+      "sunda-or"
+    ],
+    "scope": "python",
+    "body": [
+      "or "
+    ],
+    "description": "Kata Kunci / Operator: or. Operator logika disjungsi ATAU (short-circuit). Bernilai True jika minimal salah satu operand bernilai truthy."
+  },
+  "SundaPy Keyword Not": {
+    "prefix": [
+      "not",
+      "sunda-not"
+    ],
+    "scope": "python",
+    "body": [
+      "not "
+    ],
+    "description": "Kata Kunci / Operator: not. Operator logika negasi BUKAN yang membalikkan nilai kebenaran boolean."
+  },
+  "SundaPy Keyword Global": {
+    "prefix": [
+      "global",
+      "sunda-global"
+    ],
+    "scope": "python",
+    "body": [
+      "global "
+    ],
+    "description": "Kata Kunci: global. Mendeklarasikan bahwa variabel di dalam fungsi merujuk ke variabel scope global tingkat modul."
+  },
+  "SundaPy Keyword Del": {
+    "prefix": [
+      "del",
+      "sunda-del"
+    ],
+    "scope": "python",
+    "body": [
+      "del "
+    ],
+    "description": "Kata Kunci: del. Menghapus referensi variabel, elemen list berdasarkan indeks, atau kunci dictionary."
+  },
+  "SundaPy Keyword Nonlocal": {
+    "prefix": [
+      "nonlocal",
+      "sunda-nonlocal"
+    ],
+    "scope": "python",
+    "body": [
+      "nonlocal "
+    ],
+    "description": "Kata Kunci: nonlocal. Mendeklarasikan bahwa variabel di dalam fungsi nested merujuk ke scope enclosing terdekat (bukan global)."
+  },
+  "SundaPy Keyword Const": {
+    "prefix": [
+      "const",
+      "sunda-const"
+    ],
+    "scope": "python",
+    "body": [
+      "const :  = "
+    ],
+    "description": "Kata Kunci: const. Mendeklarasikan variabel bernilai konstan (immutable) pada waktu kompilasi. Percobaan reassign ditolak compiler."
+  },
+  "SundaPy Keyword With": {
+    "prefix": [
+      "with",
+      "sunda-with"
+    ],
+    "scope": "python",
+    "body": [
+      "with open(\"\", \"\") as :",
+      "    "
+    ],
+    "description": "Kata Kunci: with. Context Manager untuk manajemen alokasi dan pembersihan resource otomatis berbasis RAII (enter & exit)."
+  },
+  "SundaPy Keyword Try": {
+    "prefix": [
+      "try",
+      "sunda-try"
+    ],
+    "scope": "python",
+    "body": [
+      "try:",
+      "    ",
+      "except  as :",
+      "    "
+    ],
+    "description": "Kata Kunci: try. Membuka blok penanganan eksepsi untuk melindungi aplikasi dari runtime error."
+  },
+  "SundaPy Keyword Except": {
+    "prefix": [
+      "except",
+      "sunda-except"
+    ],
+    "scope": "python",
+    "body": [
+      "except  as :",
+      "    "
+    ],
+    "description": "Kata Kunci: except. Cabang penangkap jenis eksepsi kesalahan. Mendukung PEP 758 multi-except tanpa tanda kurung."
+  },
+  "SundaPy Keyword Finally": {
+    "prefix": [
+      "finally",
+      "sunda-finally"
+    ],
+    "scope": "python",
+    "body": [
+      "finally:",
+      "    "
+    ],
+    "description": "Kata Kunci: finally. Blok pembersihan yang dijamin SELALU dieksekusi di akhir blok try-except terlepas terjadi error atau tidak."
+  },
+  "SundaPy Keyword Raise": {
+    "prefix": [
+      "raise",
+      "sunda-raise"
+    ],
+    "scope": "python",
+    "body": [
+      "raise (\"\")"
+    ],
+    "description": "Kata Kunci: raise. Memicu atau melempar eksepsi error secara sengaja saat validasi nilai tidak terpenuhi."
+  },
+  "SundaPy Keyword Match": {
+    "prefix": [
+      "match",
+      "sunda-match"
+    ],
+    "scope": "python",
+    "body": [
+      "match :",
+      "    case :",
+      "        ",
+      "    case :",
+      "        ",
+      "    case _:",
+      "        "
+    ],
+    "description": "Kata Kunci: match. Structural Pattern Matching (PEP 634/636) berkecepatan tinggi dengan compile-time jump table."
+  },
+  "SundaPy Keyword Case": {
+    "prefix": [
+      "case",
+      "sunda-case"
+    ],
+    "scope": "python",
+    "body": [
+      "case :",
+      "    "
+    ],
+    "description": "Kata Kunci: case. Cabang pola evaluasi dalam blok match statement."
+  },
+  "SundaPy Keyword Assert": {
+    "prefix": [
+      "assert",
+      "sunda-assert"
+    ],
+    "scope": "python",
+    "body": [
+      "assert , \"\""
+    ],
+    "description": "Kata Kunci: assert. Pengecekan invariant kondisi program saat runtime; memicu AssertionError bila kondisi bernilai False."
+  },
+  "SundaPy Keyword Async": {
+    "prefix": [
+      "async",
+      "sunda-async"
+    ],
+    "scope": "python",
+    "body": [
+      "async def ():",
+      "    "
+    ],
+    "description": "Kata Kunci: async def. Mendefinisikan asynchronous coroutine function untuk non-blocking I/O event loop."
+  },
+  "SundaPy Keyword Await": {
+    "prefix": [
+      "await",
+      "sunda-await"
+    ],
+    "scope": "python",
+    "body": [
+      "await "
+    ],
+    "description": "Kata Kunci: await. Menunda eksekusi coroutine sementara sampai task asinkron selesai menghasilkan nilai."
   },
   "SundaPy Type i8": {
     "prefix": [
@@ -212,233 +623,6 @@
     ],
     "description": "Tipe Hardware: void. Menandakan fungsi yang tidak mengembalikan nilai. Contoh: def main() -> void:"
   },
-  "SundaPy Const Declaration": {
-    "prefix": [
-      "const",
-      "sunda-const"
-    ],
-    "scope": "python",
-    "body": [
-      "const :  = "
-    ],
-    "description": "Kata Kunci: const. Mendeklarasikan variabel immutable pada waktu kompilasi. Divalidasi oleh compiler SundaPy."
-  },
-  "SundaPy Pattern Matching": {
-    "prefix": [
-      "match",
-      "sunda-match"
-    ],
-    "scope": "python",
-    "body": [
-      "match :",
-      "    case :",
-      "        ",
-      "    case :",
-      "        ",
-      "    case _:",
-      "        "
-    ],
-    "description": "Kata Kunci: match-case. Structural Pattern Matching (PEP 634/636) berkecepatan tinggi dengan jump table compile-time."
-  },
-  "SundaPy Case Branch": {
-    "prefix": [
-      "case",
-      "sunda-case"
-    ],
-    "scope": "python",
-    "body": [
-      "case :",
-      "    "
-    ],
-    "description": "Kata Kunci: case. Cabang pola evaluasi dalam blok match statement."
-  },
-  "SundaPy Strict Function": {
-    "prefix": [
-      "def-strict",
-      "sunda-def"
-    ],
-    "scope": "python",
-    "body": [
-      "def (: , : ) -> :",
-      "    \"\"\"\"\"\"",
-      "    return "
-    ],
-    "description": "Definisi Fungsi #strict: Fungsi hardware native dengan anotasi tipe statis wajib untuk parameter dan return type."
-  },
-  "SundaPy Strict Class": {
-    "prefix": [
-      "class-strict",
-      "sunda-class-strict"
-    ],
-    "scope": "python",
-    "body": [
-      "class :",
-      "    : ",
-      "    : ",
-      "",
-      "    def __init__(self, : , : ) -> void:",
-      "        self. = ",
-      "        self. = "
-    ],
-    "description": "Definisi Kelas #strict: Kelas berstruktur field eksplisit dengan field berkecepatan register tanpa dynamic dict overhead."
-  },
-  "SundaPy Async Def Function": {
-    "prefix": [
-      "async",
-      "sunda-async-def"
-    ],
-    "scope": "python",
-    "body": [
-      "async def ():",
-      "    "
-    ],
-    "description": "Kata Kunci: async def. Mendefinisikan asynchronous coroutine function untuk non-blocking I/O event loop."
-  },
-  "SundaPy Await Expression": {
-    "prefix": [
-      "await",
-      "sunda-await"
-    ],
-    "scope": "python",
-    "body": [
-      "hasil = await "
-    ],
-    "description": "Kata Kunci: await. Menghentikan eksekusi coroutine sementara sampai task asinkron selesai menghasilkan nilai."
-  },
-  "SundaPy Try Except": {
-    "prefix": [
-      "try",
-      "sunda-try"
-    ],
-    "scope": "python",
-    "body": [
-      "try:",
-      "    ",
-      "except  as :",
-      "    \")}"
-    ],
-    "description": "Kata Kunci: try-except. Menangani runtime exception secara aman. Mendukung PEP 758 multi-except tanpa tanda kurung."
-  },
-  "SundaPy Try Finally": {
-    "prefix": [
-      "try-finally",
-      "sunda-finally"
-    ],
-    "scope": "python",
-    "body": [
-      "try:",
-      "    ",
-      "finally:",
-      "    "
-    ],
-    "description": "Kata Kunci: try-finally. Memastikan blok pembersihan resource selalu dieksekusi baik terjadi error maupun tidak."
-  },
-  "SundaPy Assert Statement": {
-    "prefix": [
-      "assert",
-      "sunda-assert"
-    ],
-    "scope": "python",
-    "body": [
-      "assert , \"\""
-    ],
-    "description": "Kata Kunci: assert. Pengecekan invariant kondisi program saat runtime; memicu AssertionError bila bernilai False."
-  },
-  "SundaPy With Statement": {
-    "prefix": [
-      "with",
-      "sunda-with"
-    ],
-    "scope": "python",
-    "body": [
-      "with open(\"\", \"\") as :",
-      "    "
-    ],
-    "description": "Kata Kunci: with. Context Manager untuk manajemen alokasi dan dealokasi resource otomatis berbasis RAII (enter/exit)."
-  },
-  "SundaPy While Loop": {
-    "prefix": [
-      "while",
-      "sunda-while"
-    ],
-    "scope": "python",
-    "body": [
-      "i: i64 = 0",
-      "while i < :",
-      "    "
-    ],
-    "description": "Kata Kunci: while. Perulangan berbasis kondisi. Di #strict, compiler menurunkannya langsung ke instruksi jump CPU register."
-  },
-  "SundaPy For Loop": {
-    "prefix": [
-      "for",
-      "sunda-for"
-    ],
-    "scope": "python",
-    "body": [
-      "for  in :",
-      "    "
-    ],
-    "description": "Kata Kunci: for-in. Perulangan iterasi elemen koleksi data."
-  },
-  "SundaPy For Range": {
-    "prefix": [
-      "for-range",
-      "sunda-range"
-    ],
-    "scope": "python",
-    "body": [
-      "for  in range(, ):",
-      "    "
-    ],
-    "description": "Loop for range: Otomatis di-lower oleh transpiler SundaPy menjadi while loop hardware murni tanpa overhead iterator."
-  },
-  "SundaPy For Enumerate": {
-    "prefix": [
-      "for-enum",
-      "sunda-enumerate"
-    ],
-    "scope": "python",
-    "body": [
-      "for ,  in enumerate():",
-      "    "
-    ],
-    "description": "Loop for enumerate: Di-lower ke register counter integer tanpa alokasi pasangan tupel di memori."
-  },
-  "SundaPy For Zip": {
-    "prefix": [
-      "for-zip",
-      "sunda-zip"
-    ],
-    "scope": "python",
-    "body": [
-      "for ,  in zip(, ):",
-      "    "
-    ],
-    "description": "Loop for zip: Melakukan iterasi paralel multi-koleksi secara efisien."
-  },
-  "SundaPy Lambda Expression": {
-    "prefix": [
-      "lambda",
-      "sunda-lambda"
-    ],
-    "scope": "python",
-    "body": [
-      "lambda : "
-    ],
-    "description": "Kata Kunci: lambda. Fungsi anonim inline untuk transformasi data cepat."
-  },
-  "SundaPy Yield Statement": {
-    "prefix": [
-      "yield",
-      "sunda-yield"
-    ],
-    "scope": "python",
-    "body": [
-      "yield "
-    ],
-    "description": "Kata Kunci: yield. Menghasilkan nilai lazy dari fungsi generator tanpa perlu menyimpan seluruh elemen di RAM."
-  },
   "SundaPy Frozendict": {
     "prefix": [
       "frozendict",
@@ -516,7 +700,7 @@
     "body": [
       "( := )"
     ],
-    "description": "Operator Penugasan: := (Walrus). Menugaskan nilai ke variabel di dalam ekspresi (misal kondisi while atau if)."
+    "description": "Operator Penugasan: := (Walrus). Menugaskan nilai ke variabel di dalam ekspresi kondisional (misal while atau if)."
   },
   "SundaPy Builtin Print": {
     "prefix": [
@@ -562,6 +746,28 @@
     ],
     "description": "Fungsi Builtin: range(). Menghasilkan deret angka integer secara cepat."
   },
+  "SundaPy Builtin Enumerate": {
+    "prefix": [
+      "enumerate",
+      "sunda-enumerate"
+    ],
+    "scope": "python",
+    "body": [
+      "enumerate()"
+    ],
+    "description": "Fungsi Builtin: enumerate(). Menghasilkan pasangan (indeks, elemen) dari iterasi tanpa overhead alokasi objek."
+  },
+  "SundaPy Builtin Zip": {
+    "prefix": [
+      "zip",
+      "sunda-zip"
+    ],
+    "scope": "python",
+    "body": [
+      "zip(, )"
+    ],
+    "description": "Fungsi Builtin: zip(). Menggabungkan elemen dari beberapa iterasi secara paralel."
+  },
   "SundaPy Builtin Isinstance": {
     "prefix": [
       "isinstance",
@@ -584,6 +790,17 @@
       "    "
     ],
     "description": "Fungsi Builtin: open(). Membuka file secara native dengan Linux POSIX syscalls murni."
+  },
+  "SundaPy Builtin Abs": {
+    "prefix": [
+      "abs",
+      "sunda-abs"
+    ],
+    "scope": "python",
+    "body": [
+      "abs()"
+    ],
+    "description": "Fungsi Builtin: abs(). Mengembalikan nilai absolut mutlak dari angka."
   },
   "SundaPy Builtin Round": {
     "prefix": [
@@ -651,17 +868,6 @@
     ],
     "description": "Fungsi Builtin: sum(). Menjumlahkan seluruh elemen angka dalam koleksi data."
   },
-  "SundaPy Builtin Abs": {
-    "prefix": [
-      "abs",
-      "sunda-abs"
-    ],
-    "scope": "python",
-    "body": [
-      "abs()"
-    ],
-    "description": "Fungsi Builtin: abs(). Mengembalikan nilai absolut mutlak dari angka."
-  },
   "SundaPy Builtin Sorted": {
     "prefix": [
       "sorted",
@@ -705,6 +911,65 @@
       "map(, )"
     ],
     "description": "Fungsi Builtin: map(). Menerapkan fungsi ke seluruh elemen dalam koleksi secara berurutan."
+  },
+  "SundaPy Strict Function": {
+    "prefix": [
+      "def-strict",
+      "sunda-def-strict"
+    ],
+    "scope": "python",
+    "body": [
+      "def (: , : ) -> :",
+      "    \"\"\"\"\"\"",
+      "    return "
+    ],
+    "description": "Definisi Fungsi #strict: Fungsi hardware native dengan anotasi tipe statis wajib untuk parameter dan return type."
+  },
+  "SundaPy Strict Class": {
+    "prefix": [
+      "class-strict",
+      "sunda-class-strict"
+    ],
+    "scope": "python",
+    "body": [
+      "class :",
+      "    : ",
+      "    : ",
+      "",
+      "    def __init__(self, : , : ) -> void:",
+      "        self. = ",
+      "        self. = "
+    ],
+    "description": "Definisi Kelas #strict: Kelas berstruktur field eksplisit dengan field berkecepatan register tanpa dynamic dict overhead."
+  },
+  "SundaPy Strict Compute Skeleton": {
+    "prefix": [
+      "sunda-compute",
+      "strict-skeleton"
+    ],
+    "scope": "python",
+    "body": [
+      "#strict",
+      "import time",
+      "",
+      "def (: ) -> :",
+      "    total:  = 0",
+      "    i:  = 0",
+      "    while i < :",
+      "        total = total + i",
+      "        i = i + 1",
+      "    return total",
+      "",
+      "def main() -> void:",
+      "    start: i64 = time.time_ns()",
+      "    hasil:  = ()",
+      "    elapsed: i64 = time.time_ns() - start",
+      "    print(\"Hasil :\", hasil)",
+      "    print(\"Waktu :\", elapsed, \"ns\")",
+      "",
+      "main()"
+    ],
+    "description": "Template skrip komputasi #strict lengkap dengan pengukuran waktu nanodetik time.time_ns()."
   },
   "SundaPy Nanosecond Benchmark": {
     "prefix": [
@@ -782,11 +1047,9 @@
     "body": [
       "import gpu",
       "",
-      "# 1. Alokasi field multidimensi di VRAM GPU",
       "fld = gpu.field(shape=(, ), dtype=gpu.f32)",
       "fld.fill()",
       "",
-      "# 2. Kernel komputasi GPU massal paralel",
       "@gpu.kernel",
       "def hitung(field):",
       "    x, y = gpu.thread_idx_2d()",
@@ -806,7 +1069,7 @@
     "body": [
       "import gpu",
       "",
-      "arena = gpu.Arena()  # 64 MB VRAM Pool",
+      "arena = gpu.Arena()",
       "buf = arena.alloc()",
       "print(\"Alokasi buffer arena O(1) sukses!\")",
       "arena.reset()"

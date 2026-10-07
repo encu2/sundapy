@@ -211,6 +211,42 @@ def const(target: Any) -> Any:
     """
     return target
 
+None: None
+"""
+### SundaPy Keyword / Singleton Constant: `None`
+Representasi nilai kosong (null / void pointer `0x0`).
+* **Optimasi Hardware:** Di mode `#strict`, disimpan sebagai nilai 0 di register CPU tanpa alokasi heap.
+* **1 CPU Cycle Check:** Pengecekan `x is None` dievaluasi dalam 1 instruksi `test %rax, %rax`.
+* **Operator Terkait:** Mendukung operator None-Coalescing `??` dan Safe Navigation `?.`.
+"""
+
+True: bool
+"""
+### SundaPy Keyword / Boolean Constant: `True`
+Nilai logika kebenaran boolean (Benar).
+* **Level Register:** Di-lower menjadi bit/integer `1` di register flag CPU.
+"""
+
+False: bool
+"""
+### SundaPy Keyword / Boolean Constant: `False`
+Nilai logika kebenaran boolean (Salah).
+* **Level Register:** Di-lower menjadi bit/integer `0` di register flag CPU.
+"""
+
+Ellipsis: Any
+"""
+### SundaPy Literal: `...` (Ellipsis)
+Objek singleton penanda placeholder kode atau operasi multidimensional slice.
+"""
+
+NotImplemented: Any
+"""
+### SundaPy Constant: `NotImplemented`
+Nilai balik khusus dari binary dunder methods yang menandakan operasi tidak didukung untuk tipe terkait.
+"""
+
+
 # ==============================================================================
 # 5. TIPE-TIPE DASAR STANDAR & DECORATOR (STANDARD TYPES & DECORATORS)
 # ==============================================================================
