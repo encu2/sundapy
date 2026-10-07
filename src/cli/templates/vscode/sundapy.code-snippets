@@ -1,6 +1,7 @@
 {
   "SundaPy Strict Compute Skeleton": {
     "prefix": "sunda-strict",
+    "scope": "python",
     "body": [
       "#strict",
       "import time",
@@ -30,6 +31,7 @@
   },
   "SundaPy Nanosecond Benchmark": {
     "prefix": "sunda-bench",
+    "scope": "python",
     "body": [
       "#strict",
       "import time",
@@ -67,6 +69,7 @@
   },
   "SundaPy 60 FPS Desktop Window": {
     "prefix": "sunda-gui",
+    "scope": "python",
     "body": [
       "import screenGUI",
       "import GUIEngine",
@@ -115,6 +118,7 @@
   },
   "SundaPy 2D Graphics Canvas": {
     "prefix": "sunda-canvas",
+    "scope": "python",
     "body": [
       "import GUIEngine",
       "",
@@ -135,6 +139,7 @@
   },
   "SundaPy GPU Multidimensional Field": {
     "prefix": "sunda-gpu-field",
+    "scope": "python",
     "body": [
       "import gpu",
       "",
@@ -157,6 +162,7 @@
   },
   "SundaPy GPU Fast Arena Allocator": {
     "prefix": "sunda-gpu-arena",
+    "scope": "python",
     "body": [
       "import gpu",
       "",
@@ -177,6 +183,7 @@
   },
   "SundaPy Strict OOP Class": {
     "prefix": "sunda-class",
+    "scope": "python",
     "body": [
       "#strict",
       "",
@@ -205,6 +212,7 @@
   },
   "SundaPy Pattern Matching": {
     "prefix": "sunda-match",
+    "scope": "python",
     "body": [
       "status_code = ${1:200}",
       "",
@@ -222,6 +230,7 @@
   },
   "SundaPy TCP Socket Server": {
     "prefix": "sunda-tcp-server",
+    "scope": "python",
     "body": [
       "import socket",
       "",
@@ -246,6 +255,7 @@
   },
   "SundaPy Multi-Core Threading": {
     "prefix": "sunda-thread",
+    "scope": "python",
     "body": [
       "import threading",
       "import time",
@@ -275,6 +285,7 @@
   },
   "SundaPy Asynchronous Coroutine": {
     "prefix": "sunda-async",
+    "scope": "python",
     "body": [
       "import asyncio",
       "",
@@ -297,6 +308,7 @@
   },
   "SundaPy HTTP API Request": {
     "prefix": "sunda-http",
+    "scope": "python",
     "body": [
       "import requests",
       "",
@@ -314,6 +326,7 @@
   },
   "SundaPy Direct C Import": {
     "prefix": "sunda-c-import",
+    "scope": "python",
     "body": [
       "#@link: ${1:m}",
       "import \"${2:math.h}\" as ${3:cmath}",
@@ -326,6 +339,7 @@
   },
   "SundaPy Linker Directive": {
     "prefix": "sunda-link",
+    "scope": "python",
     "body": [
       "#@link: ${1:raylib, m, pthread}"
     ],
@@ -333,6 +347,7 @@
   },
   "SundaPy High-Level FFI Binding": {
     "prefix": "sunda-ffi-high",
+    "scope": "python",
     "body": [
       "import ffi",
       "",
@@ -350,6 +365,7 @@
   },
   "SundaPy FFI C-Compatible Struct": {
     "prefix": "sunda-ffi-struct",
+    "scope": "python",
     "body": [
       "import ffi",
       "",
@@ -371,6 +387,7 @@
   },
   "SundaPy Low-Level FFI & Raw Memory": {
     "prefix": "sunda-ffi-low",
+    "scope": "python",
     "body": [
       "import ffi",
       "",
@@ -393,6 +410,7 @@
   },
   "SundaPy OOP Class Inheritance": {
     "prefix": "sunda-inherit",
+    "scope": "python",
     "body": [
       "#strict",
       "",
@@ -424,6 +442,7 @@
   },
   "SundaPy Modern PEP Features": {
     "prefix": "sunda-pep",
+    "scope": "python",
     "body": [
       "# 1. PEP 822: Compile-Time Dedented Multiline String (d\"...\")",
       "query = d\"\"\"",
@@ -454,6 +473,7 @@
   },
   "SundaPy Hardware Math Intrinsics": {
     "prefix": "sunda-math",
+    "scope": "python",
     "body": [
       "import math",
       "",

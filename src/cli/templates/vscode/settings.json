@@ -12,5 +12,13 @@
   },
   "files.associations": {
     "*.py": "python"
+  },
+  "editor.snippetSuggestions": "top",
+  "editor.suggest.showSnippets": true,
+  "editor.suggest.preview": true,
+  "editor.quickSuggestions": {
+    "other": "on",
+    "comments": "off",
+    "strings": "off"
   }
 }
