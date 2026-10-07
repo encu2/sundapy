@@ -72,7 +72,7 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
                 if (std.mem.eql(u8, p.name, "self")) {
                     p_type = try std.fmt.allocPrint(self.allocator, "*{s}", .{c.name});
                 } else {
-                    p_type = if (p.type_ann) |t| mapType(t) else if (!self.is_strict) "Dynamic" else {
+                    p_type = if (!self.is_strict) "Dynamic" else if (p.type_ann) |t| mapType(t) else {
                         std.debug.print("Strict Mode Error: Parameter '{s}' requires explicit static type annotation.\n", .{p.name});
                         return error.MissingTypeAnnotation;
                     };
@@ -83,10 +83,10 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
             
             try self.emit(") anyerror!", .{});
             
-            if (d.return_type) |rt| {
-                try self.emit("{s} {{\n", .{mapType(rt)});
-            } else if (!self.is_strict) {
+            if (!self.is_strict) {
                 try self.emit("Dynamic {{\n", .{});
+            } else if (d.return_type) |rt| {
+                try self.emit("{s} {{\n", .{mapType(rt)});
             } else {
                 std.debug.print("Strict Mode Error: Method '{s}' requires explicit return type annotation (use -> void if none).\n", .{d.name});
                 return error.MissingTypeAnnotation;
@@ -98,10 +98,32 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
             
             for (d.params.items) |p| {
                 try declared_vars.put(p.name, true);
+                try self.emitIndent();
                 if (std.mem.eql(u8, p.name, "self")) {
-                    try self.emitIndent();
-                    try self.emit("_ = &self;\n", .{});
+                    try self.emit("_ = if (true) self else {{}};\n", .{});
+                } else {
+                    try self.emit("_ = if (true) {s} else {{}};\n", .{p.name});
                 }
+            }
+            
+            var contains_yield = false;
+            for (d.body.items) |body_stmt| {
+                if (@import("../analysis/analysis.zig").hasYield(body_stmt)) {
+                    contains_yield = true;
+                    break;
+                }
+            }
+            const orig_has_yield = self.current_func_has_yield;
+            self.current_func_has_yield = contains_yield;
+            defer self.current_func_has_yield = orig_has_yield;
+
+            if (!self.is_strict and contains_yield) {
+                try self.emitIndent();
+                try self.emit("var _yield_list = dynamic.Dynamic.initList(std.ArrayList(Dynamic).empty);\n", .{});
+                try self.emitIndent();
+                try self.emit("var _has_yielded = false;\n", .{});
+                try self.emitIndent();
+                try self.emit("_ = &_yield_list; _ = &_has_yielded;\n", .{});
             }
             
             for (d.body.items) |body_stmt| {
@@ -117,8 +139,13 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
             
             if (d.return_type == null and !last_is_return) {
                 if (!self.is_strict) {
-                    try self.emitIndent();
-                    try self.emit("return Dynamic{{ .value = .none_type }};\n", .{});
+                    if (contains_yield) {
+                        try self.emitIndent();
+                        try self.emit("if (_has_yielded) return _yield_list else return Dynamic{{ .value = .none_type }};\n", .{});
+                    } else {
+                        try self.emitIndent();
+                        try self.emit("return Dynamic{{ .value = .none_type }};\n", .{});
+                    }
                 } else {
                     try self.emitIndent();
                     try self.emit("return;\n", .{});
@@ -136,7 +163,7 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
         try self.emitIndent();
         try self.emit("pub inline fn __init__(self: *{s}) anyerror!Dynamic {{\n", .{c.name});
         try self.emitIndent();
-        try self.emit("    _ = &self;\n", .{});
+        try self.emit("    _ = self;\n", .{});
         try self.emitIndent();
         try self.emit("    return Dynamic{{ .value = .none_type }};\n", .{});
         try self.emitIndent();

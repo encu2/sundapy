@@ -47,6 +47,17 @@ const TokenType = lexer.TokenType;
             node.* = .break_stmt;
             return node;
         }
+        if (self.match(.KeywordAssert)) {
+            const cond = try self.parseExpr(.none);
+            var msg: ?*ast.Node = null;
+            if (self.match(.Comma)) {
+                msg = try self.parseExpr(.none);
+            }
+            try self.consumeStmtEnd();
+            const node = try self.allocator.create(ast.Node);
+            node.* = .{ .assert_stmt = .{ .condition = cond, .message = msg } };
+            return node;
+        }
         if (self.match(.KeywordReturn)) {
             var val: ?*ast.Node = null;
             if (self.current.type != .Newline and self.current.type != .Semicolon) {
@@ -71,7 +82,7 @@ const TokenType = lexer.TokenType;
             }
             try self.consumeStmtEnd();
             const node = try self.allocator.create(ast.Node);
-            node.* = .{ .raise_stmt = .{ .value = val } };
+            node.* = .{ .raise_stmt = .{ .value = val, .from_exc = null } };
             return node;
         }
         if (self.match(.KeywordTry)) {
@@ -166,14 +177,24 @@ const TokenType = lexer.TokenType;
             return error.ParseError;
         }
         if (self.match(.KeywordImport)) {
-            const name_ptr = self.current.lexeme.ptr;
-            var name_len = self.current.lexeme.len;
-            try self.expect(.Identifier);
-            while (self.match(.Dot)) {
-                name_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(name_ptr)) + self.current.lexeme.len;
+            var name: []const u8 = undefined;
+            if (self.current.type == .String or self.current.type == .DString or self.current.type == .TString) {
+                var raw = self.current.lexeme;
+                if (raw.len >= 2 and (raw[0] == '"' or raw[0] == '\'')) {
+                    raw = raw[1 .. raw.len - 1];
+                }
+                name = raw;
+                self.advance();
+            } else {
+                const name_ptr = self.current.lexeme.ptr;
+                var name_len = self.current.lexeme.len;
                 try self.expect(.Identifier);
+                while (self.match(.Dot)) {
+                    name_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(name_ptr)) + self.current.lexeme.len;
+                    try self.expect(.Identifier);
+                }
+                name = name_ptr[0..name_len];
             }
-            const name = name_ptr[0..name_len];
             
             var alias: ?[]const u8 = null;
             if (self.match(.KeywordAs)) {
@@ -210,7 +231,26 @@ const TokenType = lexer.TokenType;
         }
 
         if (self.current.type == .Identifier) {
-            if (self.peek_token.type == .Eq) {
+            if (self.peek_token.type == .Comma) {
+                var targets: std.ArrayList(*ast.Node) = .empty;
+                const first_id = try self.allocator.create(ast.Node);
+                first_id.* = .{ .identifier = .{ .name = self.current.lexeme } };
+                try targets.append(self.allocator, first_id);
+                self.advance();
+                while (self.match(.Comma)) {
+                    if (self.current.type == .Identifier) {
+                        const id = try self.allocator.create(ast.Node);
+                        id.* = .{ .identifier = .{ .name = self.current.lexeme } };
+                        try targets.append(self.allocator, id);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                if (self.match(.Eq)) {
+                    return try @import("stmt_assign_parse.zig").parseTupleAssign(self, targets);
+                }
+            } else if (self.peek_token.type == .Eq) {
                 const target = self.current.lexeme;
                 self.advance(); 
                 self.advance(); 
@@ -321,6 +361,8 @@ const TokenType = lexer.TokenType;
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .subscript_assign = .{ .target = expr.subscript.target, .index = expr.subscript.index, .value = desugared_val } };
             return node;
+        } else if (expr.* == .list_expr and self.match(.Eq)) {
+            return try @import("stmt_assign_parse.zig").parseTupleAssign(self, expr.list_expr.items);
         }
 
         try self.consumeStmtEnd();

@@ -37,6 +37,15 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
             try analyzeFirstPass(self, c.value);
         },
         .def_stmt => |d| {
+            for (d.params.items) |p| {
+                if (!self.variables.contains(p.name)) {
+                    try self.variables.put(p.name, .{
+                        .name = p.name,
+                        .class = .stack,
+                        .is_primitive = false,
+                    });
+                }
+            }
             for (d.body.items) |stmt| {
                 try analyzeFirstPass(self, stmt);
             }
@@ -57,8 +66,9 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
             for (w.body.items) |stmt| try analyzeFirstPass(self, stmt);
         },
         .for_stmt => |f| {
-            try self.variables.put(f.iterator, .{
-                .name = f.iterator,
+            const it_clean = std.mem.trim(u8, f.iterator, " ");
+            try self.variables.put(it_clean, .{
+                .name = it_clean,
                 .class = .stack, // loop vars are stack by default
                 .is_primitive = false, // unknown iterator yield type
             });

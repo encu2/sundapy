@@ -19,7 +19,29 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
                 const val = try self.parseExpr(.none);
                 kwargs.append(self.allocator, .{ .key = key, .value = val }) catch unreachable;
             } else {
-                args.append(self.allocator, try self.parseExpr(.none)) catch unreachable;
+                var arg_expr = try self.parseExpr(.none);
+                if (self.current.type == .KeywordFor) {
+                    self.advance();
+                    const target_name = self.current.lexeme;
+                    try self.expect(.Identifier);
+                    try self.expect(.KeywordIn);
+                    const iter_expr = try self.parseExpr(.logicalOr);
+                    var cond: ?*ast.Node = null;
+                    if (self.current.type == .KeywordIf) {
+                        self.advance();
+                        cond = try self.parseExpr(.logicalOr);
+                    }
+                    const comp_node = try self.allocator.create(ast.Node);
+                    comp_node.* = .{ .list_comp = .{
+                        .expression = arg_expr,
+                        .target = target_name,
+                        .iterable = iter_expr,
+                        .condition = cond,
+                        .is_async = false,
+                    } };
+                    arg_expr = comp_node;
+                }
+                args.append(self.allocator, arg_expr) catch unreachable;
             }
             if (self.match(.Comma)) {}
         }
@@ -38,6 +60,21 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
         const attr = self.current.lexeme;
         try self.expect(.Identifier);
         node.* = .{ .getattr = .{ .target = left, .attr = attr } };
+        return node;
+    }
+    
+    if (t == .QuestionDot) {
+        self.advance();
+        const attr = self.current.lexeme;
+        try self.expect(.Identifier);
+        node.* = .{ .safe_getattr = .{ .target = left, .attr = attr } };
+        return node;
+    }
+
+    if (t == .QuestionQuestion) {
+        self.advance();
+        const right = try self.parseExpr(.logicalOr);
+        node.* = .{ .coalesce_expr = .{ .left = left, .right = right } };
         return node;
     }
     
@@ -76,6 +113,19 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
                     }
                 }
             } else {
+                if (self.current.type == .Comma) {
+                    var items: std.ArrayList(*ast.Node) = .empty;
+                    items.append(self.allocator, first) catch unreachable;
+                    while (self.match(.Comma)) {
+                        if (self.current.type == .RBracket) break;
+                        items.append(self.allocator, try self.parseExpr(.none)) catch unreachable;
+                    }
+                    const tuple_node = try self.allocator.create(ast.Node);
+                    tuple_node.* = .{ .list_expr = .{ .items = items } };
+                    try self.expect(.RBracket);
+                    node.* = .{ .subscript = .{ .target = left, .index = tuple_node } };
+                    return node;
+                }
                 try self.expect(.RBracket);
                 node.* = .{ .subscript = .{ .target = left, .index = first } };
                 return node;
@@ -85,6 +135,46 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
         try self.expect(.RBracket);
         node.* = .{ .slice = .{ .target = left, .start = slice_start, .stop = slice_stop, .step = slice_step } };
         return node;
+    }
+
+
+    
+    if (t == .ColonEq) {
+        self.advance();
+        const right = try self.parseExpr(Parser.getPrecedence(.ColonEq));
+        node.* = .{ .assign_expr = .{ .target = left, .value = right } };
+        return node;
+    }
+    
+    if (t == .KeywordIn) {
+        self.advance();
+        const right = try self.parseExpr(Parser.getPrecedence(.KeywordIn));
+        node.* = .{ .binary = .{ .op = "in", .left = left, .right = right } };
+        return node;
+    }
+    if (t == .KeywordIs) {
+        self.advance();
+        if (self.current.type == .KeywordNot) {
+            self.advance();
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordIs));
+            node.* = .{ .binary = .{ .op = "is_not", .left = left, .right = right } };
+            return node;
+        } else {
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordIs));
+            node.* = .{ .binary = .{ .op = "is", .left = left, .right = right } };
+            return node;
+        }
+    }
+    if (t == .KeywordNot) {
+        self.advance();
+        if (self.current.type == .KeywordIn) {
+            self.advance();
+            const right = try self.parseExpr(Parser.getPrecedence(.KeywordNot));
+            node.* = .{ .binary = .{ .op = "not_in", .left = left, .right = right } };
+            return node;
+        } else {
+            return error.ParseError;
+        }
     }
 
     if (t == .KeywordIf) {

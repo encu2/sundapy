@@ -6,6 +6,7 @@ pub const Transpiler = struct {
     out: std.ArrayList(u8),
     indent_level: usize = 0,
     is_strict: bool = false,
+    is_strict_expr: bool = false,
     needs_dynamic: bool = false,
     strict_funcs: ?*std.StringHashMap(bool) = null,
     safe_funcs: ?*std.StringHashMap(bool) = null,
@@ -16,9 +17,11 @@ pub const Transpiler = struct {
     class_asts: std.StringHashMap(*ast.Node),
     imported_modules: std.ArrayList([]const u8),
     module_aliases: std.StringHashMap([]const u8),
-    var_types: std.StringHashMap([]const u8),
+    scoped_aliases: std.StringHashMap([]const u8),
+    c_imported_modules: std.StringHashMap(bool),
     is_root: bool,
     escape_analyzer: *@import("analysis/escape.zig").EscapeAnalyzer,
+    current_func_has_yield: bool = false,
     
     depth: usize = 0,
     pub fn init(allocator: std.mem.Allocator, is_root: bool, mod_name: []const u8) Transpiler {
@@ -38,11 +41,16 @@ pub const Transpiler = struct {
             .class_asts = std.StringHashMap(*ast.Node).init(allocator),
             .imported_modules = .empty,
             .module_aliases = std.StringHashMap([]const u8).init(allocator),
-            .var_types = std.StringHashMap([]const u8).init(allocator),
+            .scoped_aliases = std.StringHashMap([]const u8).init(allocator),
+            .c_imported_modules = std.StringHashMap(bool).init(allocator),
             .is_root = is_root,
             .escape_analyzer = ea,
             .depth = d_cnt,
         };
+    }
+    
+    pub fn isStrict(self: *const Transpiler) bool {
+        return self.is_strict or self.is_strict_expr;
     }
     
     pub fn deinit(self: *Transpiler) void {
@@ -51,7 +59,8 @@ pub const Transpiler = struct {
         self.class_asts.deinit();
         self.imported_modules.deinit(self.allocator);
         self.module_aliases.deinit();
-        self.var_types.deinit();
+        self.scoped_aliases.deinit();
+        self.c_imported_modules.deinit();
         self.escape_analyzer.deinit();
         self.allocator.destroy(self.escape_analyzer);
     }
@@ -70,17 +79,29 @@ pub const Transpiler = struct {
     }
     
     pub fn escapeKeyword(self: *Transpiler, name: []const u8) ![]const u8 {
-        const keywords = [_][]const u8{ "error", "async", "await", "var", "const", "fn", "test", "pub", "inline", "comptime", "switch", "return", "try", "catch", "break", "continue", "if", "else", "while", "for", "and", "or", "struct", "enum", "union", "defer", "errdefer" };
+        if (std.mem.eql(u8, name, "*")) { self.label_counter += 1; return std.fmt.allocPrint(self.allocator, "_star_{d}", .{self.label_counter}); }
+        const keywords = [_][]const u8{ "_", "error", "async", "await", "var", "const", "fn", "test", "pub", "inline", "comptime", "switch", "return", "try", "catch", "break", "continue", "if", "else", "while", "for", "and", "or", "struct", "enum", "union", "defer", "errdefer" };
         for (keywords) |kw| {
             if (std.mem.eql(u8, name, kw)) {
                 return std.fmt.allocPrint(self.allocator, "@\"{s}\"", .{name});
             }
         }
-        return self.allocator.dupe(u8, name);
+        const duped = try self.allocator.dupe(u8, name);
+        for (duped) |*ch| {
+            if (ch.* == '(' or ch.* == ')' or ch.* == '*' or ch.* == '-' or ch.* == '/') ch.* = '_';
+        }
+        return duped;
     }
     
     pub fn getModSlash(self: *Transpiler, mod_name: []const u8) ![]const u8 {
-        const mod_slash = try self.allocator.dupe(u8, mod_name);
+        var start_idx: usize = 0;
+        while (start_idx < mod_name.len and mod_name[start_idx] == '.') {
+            start_idx += 1;
+        }
+        if (start_idx == mod_name.len) {
+            return try self.allocator.dupe(u8, "___dummy___");
+        }
+        const mod_slash = try self.allocator.dupe(u8, mod_name[start_idx..]);
         for (mod_slash) |*c| {
             if (c.* == '.') c.* = '/';
         }
@@ -92,6 +113,10 @@ pub const Transpiler = struct {
             .import_stmt => |i| {
                 try self.imported_modules.append(self.allocator, i.name);
                 if (i.alias) |a| try self.module_aliases.put(a, i.name);
+                if (std.mem.endsWith(u8, i.name, ".h") or std.mem.endsWith(u8, i.name, ".c")) {
+                    const target_name = if (i.alias) |a| a else std.fs.path.stem(i.name);
+                    try self.c_imported_modules.put(target_name, true);
+                }
             },
             .from_import => |f| {
                 try self.imported_modules.append(self.allocator, f.module);
@@ -152,16 +177,6 @@ pub const Transpiler = struct {
         if (std.mem.eql(u8, python_type, "dict")) return "Dynamic";
         if (std.mem.eql(u8, python_type, "None")) return "void";
         return python_type;
-    }
-
-    pub fn isDynamicTarget(self: *Transpiler, target: []const u8, type_ann: ?[]const u8) bool {
-        if (type_ann) |t| {
-            if (std.mem.eql(u8, t, "Dynamic")) return true;
-        }
-        if (self.var_types.get(target)) |t| {
-            if (std.mem.eql(u8, t, "Dynamic")) return true;
-        }
-        return false;
     }
 
     pub const isSafeNode = @import("analysis/analysis.zig").isSafeNode;

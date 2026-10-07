@@ -11,6 +11,15 @@ pub fn split(allocator: std.mem.Allocator, input: String, delimiter: String) !st
     return list;
 }
 
+pub fn splitWhitespace(allocator: std.mem.Allocator, input: String) !std.ArrayList(String) {
+    var list: std.ArrayList(String) = .empty;
+    var it = std.mem.tokenizeAny(u8, input, " \t\r\n");
+    while (it.next()) |chunk| {
+        try list.append(allocator, chunk);
+    }
+    return list;
+}
+
 pub fn replace(allocator: std.mem.Allocator, input: String, old: String, new: String) !String {
     return try std.mem.replaceOwned(u8, allocator, input, old, new);
 }

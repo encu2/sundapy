@@ -1,163 +1,94 @@
 const std = @import("std");
+const types = @import("types.zig");
+const env_mod = @import("env.zig");
+const installer = @import("installer.zig");
 
 pub fn main(ctx: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var args_iter = try std.process.Args.Iterator.initAllocator(ctx.minimal.args, allocator);
-    defer args_iter.deinit();
-
-    _ = args_iter.next(); // skip executable
-
-    var packages: std.ArrayList([]const u8) = .empty;
-
-    while (args_iter.next()) |arg| {
-        try packages.append(allocator, arg);
-    }
-
-    if (packages.items.len == 0) {
-        std.debug.print("Usage: sundafetch <pkg1> <pkg2> ...\n", .{});
-        std.process.exit(1);
-    }
-
-    // Initialize IO
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    var args_iter = try std.process.Args.Iterator.initAllocator(ctx.minimal.args, allocator);
+    defer args_iter.deinit();
+
+    _ = args_iter.next();
+
+    var raw_packages = std.ArrayList([]const u8).empty;
+    defer raw_packages.deinit(allocator);
+
+    while (args_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            env_mod.printHelp();
+            std.process.exit(0);
+        } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "--requirement")) {
+            if (args_iter.next()) |req_file| {
+                try env_mod.parseRequirementsFile(allocator, io, req_file, &raw_packages);
+            } else {
+                std.debug.print("Error: -r/--requirement requires a file path\n", .{});
+                std.process.exit(1);
+            }
+        } else if (std.mem.endsWith(u8, arg, ".txt")) {
+            try env_mod.parseRequirementsFile(allocator, io, arg, &raw_packages);
+        } else if (std.mem.startsWith(u8, arg, "-")) {
+            // Ignore other flags
+        } else {
+            if (env_mod.parseRequirementLine(arg)) |pkg_name| {
+                try env_mod.appendUnique(allocator, &raw_packages, pkg_name);
+            }
+        }
+    }
+
+    if (raw_packages.items.len == 0) {
+        env_mod.printHelp();
+        std.process.exit(1);
+    }
 
     const cwd = std.Io.Dir.cwd();
     cwd.createDirPath(io, ".cache/pyLibrary") catch {};
 
+    const target_env = env_mod.detectTargetEnv(allocator, io);
+    std.debug.print("[sundafetch] Target: {s}-{s} on {s}/{s} (Python {})\n", .{
+        target_env.py_tag,
+        target_env.abi_tag,
+        target_env.os,
+        target_env.arch,
+        target_env.py_ver_num,
+    });
+
     var bundle = std.crypto.Certificate.Bundle.empty;
     try bundle.rescan(allocator, io, std.Io.Clock.real.now(io));
+    defer bundle.deinit(allocator);
 
-    var threads = std.ArrayList(std.Thread).empty;
-    defer threads.deinit(allocator);
+    var visited_map = std.StringHashMap(bool).init(allocator);
+    defer visited_map.deinit();
 
-    for (packages.items) |pkg| {
-        const t = try std.Thread.spawn(.{}, fetchPackage, .{allocator, &bundle, pkg});
-        try threads.append(allocator, t);
-    }
+    var queue = std.ArrayList([]const u8).empty;
+    defer queue.deinit(allocator);
 
-    for (threads.items) |t| {
-        t.join();
-    }
-
-    std.debug.print("All packages fetched successfully.\n", .{});
-}
-
-fn fetchPackage(allocator: std.mem.Allocator, shared_bundle: *std.crypto.Certificate.Bundle, pkg: []const u8) void {
-    fetchPackageImpl(allocator, shared_bundle, pkg) catch |err| {
-        std.debug.print("Error fetching '{s}': {any}\n", .{pkg, err});
-    };
-}
-
-fn fetchPackageImpl(allocator: std.mem.Allocator, shared_bundle: *std.crypto.Certificate.Bundle, pkg: []const u8) !void {
-    std.debug.print("Resolving {s}...\n", .{pkg});
-    
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    var client = std.http.Client{
-        .allocator = allocator,
-        .io = io,
-        .ca_bundle = shared_bundle.*,
-        .now = std.Io.Clock.real.now(io),
-    };
-    defer {
-        // Prevent client.deinit() from freeing the shared bundle's inner pointers!
-        client.ca_bundle = .empty;
-        client.deinit();
-    }
-
-    // The user wants a native resolver. We can't bundle python/uv.
-    // But JSON parsing + HTTP request + ZIP extraction in Zig takes a lot of code.
-    // Let's implement the HTTP + JSON + ZIP extraction!
-
-    const url = try std.fmt.allocPrint(allocator, "https://pypi.org/pypi/{s}/json/", .{pkg});
-    defer allocator.free(url);
-
-    var req = try client.request(.GET, try std.Uri.parse(url), .{
-        .headers = .{ .accept_encoding = .{ .override = "gzip" } },
-    });
-    defer req.deinit();
-    try req.sendBodiless();
-
-    var server_header_buffer: [8192]u8 = undefined;
-    var res = try req.receiveHead(&server_header_buffer);
-
-    if (@intFromEnum(res.head.status) != 200) {
-        std.debug.print("Failed to fetch metadata for {s} (status {})\n", .{pkg, res.head.status});
-        return error.MetadataFetchFailed;
-    }
-
-    std.debug.print("[{s}] Reading transfer buffer...\n", .{pkg});
-    var transfer_buf: [8192]u8 = undefined;
-    const transfer_reader = res.reader(&transfer_buf);
-    
-    // PyPI forces gzip if accept-encoding is provided
-    std.debug.print("[{s}] Initializing decompressor...\n", .{pkg});
-    var decompress_buf: [std.compress.flate.max_window_len]u8 = undefined;
-    var flate = std.compress.flate.Decompress.init(transfer_reader, .gzip, &decompress_buf);
-    
-    std.debug.print("[{s}] Allocating and reading body...\n", .{pkg});
-    const body = try flate.reader.allocRemaining(allocator, .limited(10 * 1024 * 1024));
-    defer allocator.free(body);
-    
-    std.debug.print("[{s}] Body read success! Length: {}\n", .{pkg, body.len});
-
-    std.debug.print("Body length for {s}: {}\n", .{pkg, body.len});
-    if (body.len > 0) {
-        std.debug.print("Body prefix: {s}\n", .{body[0..@min(body.len, 50)]});
-    }
-
-    // ponytail: use json parsing
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
-    defer parsed.deinit();
-
-    const urls = parsed.value.object.get("urls").?.array;
-    var wheel_url: ?[]const u8 = null;
-    
-    for (urls.items) |u| {
-        const ptype = u.object.get("packagetype").?.string;
-        if (std.mem.eql(u8, ptype, "bdist_wheel")) {
-            wheel_url = u.object.get("url").?.string;
-            break;
+    for (raw_packages.items) |pkg| {
+        const canonical = try env_mod.canonicalPkgName(allocator, pkg);
+        if (!visited_map.contains(canonical)) {
+            try visited_map.put(canonical, true);
+            try queue.append(allocator, canonical);
         }
     }
 
-    const final_url = wheel_url orelse {
-        std.debug.print("No wheel found for {s}\n", .{pkg});
-        return error.NoWheelFound;
-    };
-
-    std.debug.print("Downloading wheel for {s} from {s}\n", .{pkg, final_url});
-
-    var dl_req = try client.request(.GET, try std.Uri.parse(final_url), .{});
-    defer dl_req.deinit();
-    try dl_req.sendBodiless();
-    
-    var dl_header_buffer: [8192]u8 = undefined;
-    var dl_res = try dl_req.receiveHead(&dl_header_buffer);
-
-    if (dl_res.head.status != .ok) {
-        std.debug.print("Failed to download wheel (status {})\n", .{dl_res.head.status});
-        return error.DownloadFailed;
+    var idx: usize = 0;
+    while (idx < queue.items.len) : (idx += 1) {
+        const pkg = queue.items[idx];
+        const new_deps = try installer.fetchAndInstallPackage(allocator, io, &bundle, pkg, target_env);
+        for (new_deps) |dep| {
+            const canonical_dep = try env_mod.canonicalPkgName(allocator, dep);
+            if (!visited_map.contains(canonical_dep) and !env_mod.isPackageInstalled(io, canonical_dep)) {
+                try visited_map.put(canonical_dep, true);
+                try queue.append(allocator, canonical_dep);
+            }
+        }
     }
 
-    const cache_dir = std.Io.Dir.cwd();
-    var dl_transfer_buf: [8192]u8 = undefined;
-    const dl_body_reader = dl_res.reader(&dl_transfer_buf);
-    const wheel_data = try dl_body_reader.allocRemaining(allocator, .limited(50 * 1024 * 1024));
-    defer allocator.free(wheel_data);
-
-    std.debug.print("Extracting {s} ({} bytes)...\n", .{pkg, wheel_data.len});
-
-    const tmp_path = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.whl", .{pkg});
-    defer allocator.free(tmp_path);
-    try cache_dir.writeFile(io, .{ .sub_path = tmp_path, .data = wheel_data });
-    
-    std.debug.print("Successfully streamed {s}.whl to disk!\n", .{pkg});
+    std.debug.print("\n[sundafetch] All packages installed into .cache/pyLibrary successfully.\n", .{});
 }

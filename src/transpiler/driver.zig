@@ -34,45 +34,23 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     
     try self.emit("const std = @import(\"std\");\n\n", .{});
     try self.emit("/// IMPORTS_PLACEHOLDER\n\n", .{});
-    try self.out.appendSlice(self.allocator,
-        \\fn printStrictVal(_sundapy_val: anytype) void {
-        \\    const _sundapy_T = @TypeOf(_sundapy_val);
-        \\    if (@typeInfo(_sundapy_T) == .@"struct" and @hasDecl(_sundapy_T, "print")) {
-        \\        _sundapy_val.print();
-        \\    } else if (_sundapy_T == []const u8 or _sundapy_T == [:0]const u8 or (@typeInfo(_sundapy_T) == .pointer and @typeInfo(_sundapy_T).pointer.size == .slice and @typeInfo(_sundapy_T).pointer.child == u8) or (@typeInfo(_sundapy_T) == .pointer and @typeInfo(_sundapy_T).pointer.size == .one and @typeInfo(@typeInfo(_sundapy_T).pointer.child) == .array and @typeInfo(@typeInfo(_sundapy_T).pointer.child).array.child == u8)) {
-        \\        std.debug.print("{s}", .{_sundapy_val});
-        \\    } else if (_sundapy_T == bool) {
-        \\        std.debug.print("{s}", .{if (_sundapy_val) "True" else "False"});
-        \\    } else if (_sundapy_T == void) {
-        \\        std.debug.print("None", .{});
-        \\    } else {
-        \\        std.debug.print("{any}", .{_sundapy_val});
-        \\    }
-        \\}
-        \\
-        \\fn printStrict(_sundapy_args: anytype) void {
-        \\    const _sundapy_fields = @typeInfo(@TypeOf(_sundapy_args)).@"struct".fields;
-        \\    inline for (_sundapy_fields, 0..) |_sundapy_field, _sundapy_i| {
-        \\        printStrictVal(@field(_sundapy_args, _sundapy_field.name));
-        \\        if (_sundapy_i < _sundapy_fields.len - 1) {
-        \\            std.debug.print(" ", .{});
-        \\        }
-        \\    }
-        \\    std.debug.print("\n", .{});
-        \\}
-        \\
-        \\
-    );
     
     for (program.items) |stmt| {
         if (stmt.* == .import_stmt) {
             const i = stmt.import_stmt;
-            const base_target_name = if (i.alias) |a| a else i.name;
-            const target_name = try self.escapeKeyword(base_target_name);
-            defer self.allocator.free(target_name);
-            const mod_slash = try self.getModSlash(i.name);
-            defer self.allocator.free(mod_slash);
-            try self.emit("pub const {s} = @import(\"{s}.zig\");\n", .{target_name, mod_slash});
+            if (std.mem.endsWith(u8, i.name, ".h") or std.mem.endsWith(u8, i.name, ".c")) {
+                const base_name = if (i.alias) |a| a else std.fs.path.stem(i.name);
+                const target_name = try self.escapeKeyword(base_name);
+                defer self.allocator.free(target_name);
+                try self.emit("pub const {s} = @cImport({{\n    @cInclude(\"{s}\");\n}});\n", .{ target_name, i.name });
+            } else {
+                const base_target_name = if (i.alias) |a| a else i.name;
+                const target_name = try self.escapeKeyword(base_target_name);
+                defer self.allocator.free(target_name);
+                const mod_slash = try self.getModSlash(i.name);
+                defer self.allocator.free(mod_slash);
+                try self.emit("pub const {s} = @import(\"{s}.zig\");\n", .{ target_name, mod_slash });
+            }
         } else if (stmt.* == .from_import) {
             const f = stmt.from_import;
             const base_target_name = if (f.alias) |a| a else f.name;
@@ -80,14 +58,47 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             defer self.allocator.free(target_name);
             const mod_slash = try self.getModSlash(f.module);
             defer self.allocator.free(mod_slash);
-            try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_slash, mod_slash});
-            try self.emit("pub const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{target_name, mod_slash});
-            try self.emit("pub const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, target_name, mod_slash, f.name});
+            const mod_ident = try self.allocator.dupe(u8, mod_slash);
+            defer self.allocator.free(mod_ident);
+            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+
+            try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+            try self.emit("pub const _sundapy_has_decl_{s} = @hasDecl({s}_mod, \"{s}\");\n", .{target_name, mod_ident, f.name});
+            try self.emit("pub const _sundapy_is_abi_{s} = !_sundapy_has_decl_{s};\n", .{target_name, target_name});
+            try self.emit("pub var {s}: if (_sundapy_has_decl_{s}) @TypeOf(@field({s}_mod, \"{s}\")) else @import(\"{s}datatype/dynamic.zig\").Dynamic = if (_sundapy_has_decl_{s}) @field({s}_mod, \"{s}\") else undefined;\n", .{target_name, target_name, mod_ident, f.name, prefix, target_name, mod_ident, f.name});
             try self.emit("pub var {s}_dyn: @import(\"{s}datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name, prefix});
         }
+
+
     }
     
-    try self.emit("\npub var alloc: std.mem.Allocator = undefined;\n\n", .{});
+    try self.out.appendSlice(self.allocator,
+        \\pub inline fn _sundapy_to_f64(v: anytype) f64 {
+        \\    const T = @TypeOf(v);
+        \\    if (T == comptime_int or @typeInfo(T) == .int) return @as(f64, @floatFromInt(v));
+        \\    if (T == comptime_float or @typeInfo(T) == .float) return @as(f64, @floatCast(v));
+        \\    return 0.0;
+        \\}
+        \\pub inline fn _sundapy_to_c_arg(comptime TargetT: type, __sundapy_c_in: anytype) TargetT {
+        \\    const ValT = @TypeOf(__sundapy_c_in);
+        \\    if (ValT == TargetT) return __sundapy_c_in;
+        \\    if (ValT == Dynamic) {
+        \\        if (TargetT == f64) return __sundapy_c_in.asFloat();
+        \\        if (TargetT == f32) return @floatCast(__sundapy_c_in.asFloat());
+        \\        if (TargetT == i64) return __sundapy_c_in.asInt();
+        \\        if (TargetT == i32 or TargetT == c_int) return @intCast(__sundapy_c_in.asInt());
+        \\        if (TargetT == u32 or TargetT == c_uint) return @intCast(__sundapy_c_in.asInt());
+        \\        if (TargetT == usize) return @as(usize, @bitCast(__sundapy_c_in.asInt()));
+        \\        if (TargetT == bool) return __sundapy_c_in.toBool();
+        \\        if (TargetT == [*c]const u8 or TargetT == [*:0]const u8) return @ptrCast(__sundapy_c_in.value.str_type.ptr);
+        \\        if (TargetT == ?*anyopaque or TargetT == *anyopaque) return @ptrFromInt(@as(usize, @bitCast(__sundapy_c_in.asInt())));
+        \\    }
+        \\    return __sundapy_c_in;
+        \\}
+        \\pub var alloc: std.mem.Allocator = undefined;
+        \\
+        \\
+    );
     
     // Output global variables for all top-level assignments
     var global_vars = std.StringHashMap(bool).init(self.allocator);
@@ -98,34 +109,43 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     
     
     for (program.items) |stmt| {
+        if (stmt.* == .class_stmt) {
+            const c = stmt.class_stmt;
+            try self.classes.put(c.name, true);
+            try self.class_asts.put(c.name, stmt);
+        }
+    }
+
+    for (program.items) |stmt| {
         if (stmt.* == .assign) {
             const a = stmt.assign;
             if (!global_vars.contains(a.target)) {
                 try global_vars.put(a.target, true);
                 if (self.is_strict) {
                     if (a.type_ann) |t| {
-                        try self.var_types.put(a.target, t);
-                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
                         std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
                         return error.MissingTypeAnnotation;
                     }
                 } else {
                     if (a.type_ann) |t| {
-                        try self.var_types.put(a.target, t);
-                        try self.emit("var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
                     } else {
+                        if (a.value.* == .call and a.value.call.callee.* == .identifier and self.classes.contains(a.value.call.callee.identifier.name)) {
+                            try self.emit("pub var {s}: {s} = undefined;\n", .{ a.target, a.value.call.callee.identifier.name });
+                            continue;
+                        }
+
                         if (self.escape_analyzer.variables.get(a.target)) |v_info| {
                             if (v_info.class == .stack and v_info.is_primitive) {
                                 // Use inferred primitive type for global
                                 const t = self.escape_analyzer.primitiveTypeString(a.value);
-                                try self.var_types.put(a.target, t);
-                                try self.emit("var {s}: {s} = undefined;\n", .{a.target, t});
+                                try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, t});
                                 continue;
                             }
                         }
-                        try self.var_types.put(a.target, "Dynamic");
-                        try self.emit("var {s}: Dynamic = undefined;\n", .{a.target});
+                        try self.emit("pub var {s}: Dynamic = undefined;\n", .{a.target});
                     }
                 }
             }
@@ -137,12 +157,9 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             if (d.is_strict or self.is_strict) {
                 try strict_funcs.put(d.name, true);
             }
-        } else if (stmt.* == .class_stmt) {
-            const c = stmt.class_stmt;
-            try self.classes.put(c.name, true);
-            try self.class_asts.put(c.name, stmt);
         }
     }
+
     
     // Output all top-level defs or classes
     for (program.items) |stmt| {
@@ -157,17 +174,22 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     // For python-like scripts, top level statements must be in __sundapy_module_init
     try self.emit("pub fn __sundapy_module_init() !void {{\n", .{});
     self.indent_level += 1;
-    if (self.is_strict) {
+    const compiler = @import("../core/compiler.zig");
+    if (compiler.is_release_fast) {
+        try self.emitIndent();
+        try self.emit("@setRuntimeSafety(false);\n", .{});
+    } else if (self.is_strict) {
         try self.emitIndent();
         try self.emit("@setRuntimeSafety(true);\n", .{});
     }
     try self.emitIndent();
-    try self.emit("alloc = std.heap.page_allocator;\n", .{});
+    try self.emit("alloc = std.heap.c_allocator;\n", .{});
 
     // Emit init calls for all imported modules (ABI wrappers need __sundapy_module_init)
     for (program.items) |stmt| {
         if (stmt.* == .import_stmt) {
             const i = stmt.import_stmt;
+            if (std.mem.endsWith(u8, i.name, ".h") or std.mem.endsWith(u8, i.name, ".c")) continue;
             const base_target_name = if (i.alias) |a| a else i.name;
             const target_name = try self.escapeKeyword(base_target_name);
             defer self.allocator.free(target_name);
@@ -181,15 +203,24 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             const mod_slash = try self.getModSlash(f.module);
             defer self.allocator.free(mod_slash);
             
+            const mod_ident = try self.allocator.dupe(u8, mod_slash);
+            defer self.allocator.free(mod_ident);
+            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+
             try self.emitIndent();
-            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_slash, mod_slash});
+            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_ident, mod_ident});
             try self.emitIndent();
-            try self.emit("if (_sundapy_is_abi_{s}) {{\n", .{target_name});
+            try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {{\n", .{mod_ident});
             try self.emitIndent();
-            try self.emit("    {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_slash, f.name});
+            try self.emit("    const _tmp_{s} = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_ident, f.name});
+            try self.emitIndent();
+            try self.emit("    {s}_dyn = _tmp_{s};\n", .{target_name, target_name});
+            try self.emitIndent();
+            try self.emit("    if (comptime _sundapy_is_abi_{s}) {s} = _tmp_{s};\n", .{target_name, target_name, target_name});
             try self.emitIndent();
             try self.emit("}}\n", .{});
         }
+
     }
 
     
@@ -223,7 +254,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     const out_str = self.out.items;
     
     const dyn_import_str = if (@import("../core/compiler.zig").global_uses_dynamic)
-        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\n\n", .{prefix})
+        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\nconst int = Dynamic.initStr(\"int\");\nconst @\"float\" = Dynamic.initStr(\"float\");\nconst str = Dynamic.initStr(\"str\");\nconst list = Dynamic.initStr(\"list\");\nconst dict = Dynamic.initStr(\"dict\");\nconst @\"bool\" = Dynamic.initStr(\"bool\");\n\n", .{prefix})
     else
         try std.fmt.allocPrint(self.allocator, "// Pure static mode\nconst Dynamic = void;\n", .{});
     defer self.allocator.free(dyn_import_str);

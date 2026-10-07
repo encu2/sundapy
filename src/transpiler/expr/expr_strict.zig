@@ -17,16 +17,31 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             } else if (std.mem.eql(u8, i.name, "None")) {
                 try self.emit("null", .{});
             } else {
+                if (self.scoped_aliases.get(i.name)) |alias| {
+                    try self.emit("{s}", .{alias});
+                    return;
+                }
                 const escaped = try self.escapeKeyword(i.name);
                 defer self.allocator.free(escaped);
                 try self.emit("{s}", .{escaped});
             }
         },
         .unary => |u| {
-            try self.emit("{s}", .{u.op});
-            try self.transpileExprStrict(u.right);
+            if (try @import("expr_idiom_bit.zig").tryLowerBitUnary(self, node)) {
+                return;
+            }
+            if (std.mem.eql(u8, u.op, "not")) {
+                try self.emit("!", .{});
+                try self.transpileExprStrict(u.right);
+            } else {
+                try self.emit("{s}", .{u.op});
+                try self.transpileExprStrict(u.right);
+            }
         },
         .binary => |b| {
+            if (try @import("expr_idiom_bit.zig").tryLowerBitwiseIdiom(self, node)) {
+                return;
+            }
             if (std.mem.eql(u8, b.op, "%")) {
                 try self.emit("@mod(", .{});
                 try self.transpileExprStrict(b.left);
@@ -34,15 +49,68 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
             } else if (std.mem.eql(u8, b.op, "/")) {
-                try self.emit("@divTrunc(", .{});
-                try self.transpileExprStrict(b.left);
-                try self.emit(", ", .{});
-                try self.transpileExprStrict(b.right);
-                try self.emit(")", .{});
+                const is_float_expr = (b.left.* == .float or b.left.* == .number or b.right.* == .float or b.right.* == .number);
+                if (is_float_expr) {
+                    try self.emit("(", .{});
+                    try self.transpileExprStrict(b.left);
+                    try self.emit(" / ", .{});
+                    try self.transpileExprStrict(b.right);
+                    try self.emit(")", .{});
+                } else {
+                    try self.emit("@divTrunc(", .{});
+                    try self.transpileExprStrict(b.left);
+                    try self.emit(", ", .{});
+                    try self.transpileExprStrict(b.right);
+                    try self.emit(")", .{});
+                }
             } else if (std.mem.eql(u8, b.op, "//")) {
                 try self.emit("@divFloor(", .{});
                 try self.transpileExprStrict(b.left);
                 try self.emit(", ", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(")", .{});
+            } else if (std.mem.eql(u8, b.op, "in")) {
+                self.label_counter += 1;
+                const lid = self.label_counter;
+                try self.emit("(blk_{d}: {{\n", .{lid});
+                try self.emit("    const _l = ", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(";\n", .{});
+                try self.emit("    const _r = ", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(";\n", .{});
+                try self.emit("    var _found = false;\n", .{});
+                try self.emit("    inline for (_r) |v| {{\n", .{});
+                try self.emit("        if (_l == v) {{ _found = true; break; }}\n", .{});
+                try self.emit("    }}\n", .{});
+                try self.emit("    break :blk_{d} _found;\n", .{lid});
+                try self.emit("}})", .{});
+            } else if (std.mem.eql(u8, b.op, "not_in") or std.mem.eql(u8, b.op, "not in")) {
+                self.label_counter += 1;
+                const lid = self.label_counter;
+                try self.emit("(blk_{d}: {{\n", .{lid});
+                try self.emit("    const _l = ", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(";\n", .{});
+                try self.emit("    const _r = ", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(";\n", .{});
+                try self.emit("    var _found = false;\n", .{});
+                try self.emit("    inline for (_r) |v| {{\n", .{});
+                try self.emit("        if (_l == v) {{ _found = true; break; }}\n", .{});
+                try self.emit("    }}\n", .{});
+                try self.emit("    break :blk_{d} !_found;\n", .{lid});
+                try self.emit("}})", .{});
+            } else if (std.mem.eql(u8, b.op, "is")) {
+                try self.emit("(", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(" == ", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(")", .{});
+            } else if (std.mem.eql(u8, b.op, "is_not")) {
+                try self.emit("(", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(" != ", .{});
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
             } else {
@@ -62,6 +130,9 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             try self.emit("}}", .{});
         },
         .list_comp => {
+            if (try @import("expr_idiom_lowering.zig").tryLowerMultidimList(self, node)) {
+                return;
+            }
             try self.emit("@compileError(\"List comprehensions are dynamic by nature and not yet supported in #strict mode without an allocator.\");", .{});
         },
         .dict_expr => |d| {
@@ -94,17 +165,18 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
         },
         .subscript => |s| {
             if (self.try_depth == 0) {
-                try self.emit("try (", .{});
+                try self.emit("(try (", .{});
             } else if (self.try_depth > 0) {
                 try self.emit("((", .{});
             }
             try self.transpileExpr(s.target);
             try self.emit(").getDynamicItem(", .{});
             try self.transpileExpr(s.index);
-            try self.emit(")", .{});
-            if (self.try_depth > 0) {
+            if (self.try_depth == 0) {
+                try self.emit("))", .{});
+            } else if (self.try_depth > 0) {
                 self.label_counter += 1;
-                try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+                try self.emit(") catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
         },
         .slice => |s| {
@@ -135,16 +207,53 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             try self.emit(")", .{});
             if (self.try_depth > 0) {
                 self.label_counter += 1;
-                try self.emit(" catch |err_{d}| break :blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+                try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
+
         },
         .getattr => |g| {
+            if (try @import("expr_math_intrinsics.zig").tryLowerMathAttr(self, g)) return;
             if (self.try_depth == 0) {
                 // Not needed for getattr on structs, but we keep format
             }
             try self.transpileExpr(g.target);
             try self.emit(".{s}", .{g.attr});
         },
+        .assign_expr => |a| {
+            self.label_counter += 1;
+            const lid = self.label_counter;
+            try self.emit("(blk_{d}: {{\n", .{lid});
+            try self.emit("    const _res = ", .{});
+            try self.transpileExpr(a.value);
+            try self.emit(";\n", .{});
+            try self.emit("    ", .{});
+            try self.transpileExpr(a.target);
+            try self.emit(" = _res;\n", .{});
+            try self.emit("    break :blk_{d} _res;\n", .{lid});
+            try self.emit("}})", .{});
+        },
+        .safe_getattr => |g| {
+            try self.emit("(if (", .{});
+            try self.transpileExprStrict(g.target);
+            try self.emit(") |_v| _v.{s} else null)", .{g.attr});
+        },
+        .coalesce_expr => |c| {
+            try self.emit("((", .{});
+            try self.transpileExprStrict(c.left);
+            try self.emit(") orelse (", .{});
+            try self.transpileExprStrict(c.right);
+            try self.emit("))", .{});
+        },
+        .dstring => |d| {
+            const dedented = @import("expr_string_tools.zig").dedentString(self.allocator, d.value);
+            const escaped = @import("expr_string_tools.zig").escapeForZig(self.allocator, dedented);
+            try self.emit("\"{s}\"", .{escaped});
+        },
+        .tstring => |t| {
+            const escaped = @import("expr_string_tools.zig").escapeForZig(self.allocator, t.value);
+            try self.emit(".{{ .template = \"{s}\" }}", .{escaped});
+        },
+        .dummy_expr => try self.emit("dynamic.Dynamic.initNone()", .{}),
         else => try self.emit("/* unhandled expr */", .{}),
     }
 }

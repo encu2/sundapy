@@ -9,6 +9,3 @@ __pycache__/
 strace.log
 strace_out.txt
 test_results.txt
-.vscode/
-assets/
-log.txt

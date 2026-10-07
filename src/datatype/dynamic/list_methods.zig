@@ -45,7 +45,7 @@ const mapping = @import("../mapping.zig");
         }
         return error.AttributeError;
     }
-    pub fn list_count(self: *Dynamic, item: Dynamic) !Dynamic {
+    pub fn list_count(self: Dynamic, item: Dynamic) !Dynamic {
         if (self.value == .list_type) {
             const items = self.value.list_type.items.items;
             var c: i64 = 0;
@@ -56,7 +56,7 @@ const mapping = @import("../mapping.zig");
         }
         return error.AttributeError;
     }
-    pub fn list_index(self: *Dynamic, item: Dynamic) !Dynamic {
+    pub fn list_index(self: Dynamic, item: Dynamic) !Dynamic {
         if (self.value == .list_type) {
             const items = self.value.list_type.items.items;
             for (items, 0..) |it, i| {

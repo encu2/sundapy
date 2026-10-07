@@ -79,6 +79,12 @@ pub fn printValue(self: Dynamic) void {
                 std.debug.print("None", .{});
             }
         },
+        .gpu_buffer_type => |g| {
+            @import("../gpu_types.zig").printBuffer(g);
+        },
+        .gpu_kernel_type => |k| {
+            std.debug.print("<gpu.Kernel {*}>", .{k});
+        },
         else => std.debug.print("[NotDynamic: {any}]", .{self.value}),
     }
 }
@@ -87,8 +93,8 @@ pub fn printArg(val: anytype) void {
     const T = @TypeOf(val);
     if (T == Dynamic) {
         val.print();
-    } else if (T == []const u8 or T == [:0]const u8 or (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(T).pointer.child == u8) or (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one and @typeInfo(@typeInfo(T).pointer.child) == .array and @typeInfo(@typeInfo(T).pointer.child).array.child == u8)) {
-        // String literal or slice
+    } else if (T == []const u8 or T == *const [0:0]u8 or @typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one and @typeInfo(@typeInfo(T).pointer.child) == .array and @typeInfo(@typeInfo(T).pointer.child).array.child == u8) {
+        // String literal
         std.debug.print("{s}", .{val});
     } else if (T == bool) {
         std.debug.print("{s}", .{if (val) "True" else "False"});

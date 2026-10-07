@@ -2,9 +2,19 @@ const std = @import("std");
 const dynamic = @import("datatype/dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 
+pub const name = Dynamic.initStr("socket");
 pub const AF_INET = Dynamic.initInt(2);
 pub const AF_INET6 = Dynamic.initInt(10);
 pub const SOCK_STREAM = Dynamic.initInt(1);
+
+pub fn gethostname() anyerror!Dynamic {
+    const uname = std.posix.uname();
+    const len = std.mem.indexOfScalar(u8, &uname.nodename, 0) orelse uname.nodename.len;
+    return Dynamic.initStr(uname.nodename[0..len]);
+}
+
+
+
 
 pub const socket_class = struct {
     fd: Dynamic = undefined,

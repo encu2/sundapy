@@ -8,6 +8,7 @@ pub fn len(self: Dynamic) usize {
         .list_type => |l| l.items.items.len,
         .tuple_type => |t| t.items.len,
         .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PikaPython.getLength(obj) else 0,
+        .gpu_buffer_type => |g| @import("gpu_types.zig").bufferLen(g),
         else => 0,
     };
 }
@@ -19,6 +20,7 @@ pub fn getItem(self: Dynamic, idx: usize) Dynamic {
         .list_type => |l| l.items.items[idx],
         .tuple_type => |t| t.items[idx],
         .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PikaPython.getItem(obj, idx) else .{ .value = .{ .none_type = {} } },
+        .gpu_buffer_type => |g| @import("gpu_types.zig").bufferGetItem(g, Dynamic.initInt(@intCast(idx))) catch .{ .value = .{ .none_type = {} } },
         else => .{ .value = .{ .none_type = {} } },
     };
 }
@@ -50,6 +52,10 @@ pub fn getDynamicItem(self: Dynamic, index: Dynamic) !Dynamic {
             defer arena.deinit();
             return @import("python_abi.zig").PikaPython.getDynamicItem(obj, arena.allocator(), index) catch return error.KeyError;
         }
+    } else if (self.value == .gpu_buffer_type) {
+        return @import("gpu_types.zig").bufferGetItem(self.value.gpu_buffer_type, index);
+    } else if (self.isFunction()) {
+        return @import("gpu_types.zig").createBoundKernel(self, index);
     }
     return error.TypeError;
 }
@@ -65,6 +71,8 @@ pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
         if (idx < 0 or idx >= self.value.list_type.items.items.len) return error.IndexError;
         self.value.list_type.items.items[@intCast(idx)] = value;
         return;
+    } else if (self.value == .gpu_buffer_type) {
+        return @import("gpu_types.zig").bufferSetItem(self.value.gpu_buffer_type, index, value);
     }
     return error.TypeError;
 }

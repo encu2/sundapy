@@ -93,6 +93,30 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
             switch (b.value) {
                 .i64_type => |bv| return Dynamic.initInt(av * bv),
                 .float_type => |bv| return Dynamic.initFloat(@as(f64, @floatFromInt(av)) * bv),
+                .list_type => |bv| {
+                    const count = @max(0, av);
+                    const allocator = std.heap.page_allocator;
+                    var new_list = std.ArrayList(Dynamic).empty;
+                    const orig_items = bv.items.items;
+                    const total_len = orig_items.len * @as(usize, @intCast(count));
+                    new_list.ensureTotalCapacity(allocator, total_len) catch unreachable;
+                    var rep: usize = 0;
+                    while (rep < count) : (rep += 1) {
+                        new_list.appendSlice(allocator, orig_items) catch unreachable;
+                    }
+                    return Dynamic.initList(new_list);
+                },
+                .str_type => |sv| {
+                    const count = @max(0, av);
+                    const allocator = std.heap.page_allocator;
+                    const total_len = sv.len * @as(usize, @intCast(count));
+                    var new_str = allocator.alloc(u8, total_len) catch unreachable;
+                    var rep: usize = 0;
+                    while (rep < count) : (rep += 1) {
+                        @memcpy(new_str[rep * sv.len .. (rep + 1) * sv.len], sv);
+                    }
+                    return Dynamic{ .value = .{ .str_type = new_str } };
+                },
                 else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
             }
         },
@@ -102,6 +126,36 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
                 .i64_type => |bv| return Dynamic.initFloat(av * @as(f64, @floatFromInt(bv))),
                 else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
             }
+        },
+        .list_type => |lv| {
+            if (b.value == .i64_type) {
+                const count = @max(0, b.value.i64_type);
+                const allocator = std.heap.page_allocator;
+                var new_list = std.ArrayList(Dynamic).empty;
+                const orig_items = lv.items.items;
+                const total_len = orig_items.len * @as(usize, @intCast(count));
+                new_list.ensureTotalCapacity(allocator, total_len) catch unreachable;
+                var rep: usize = 0;
+                while (rep < count) : (rep += 1) {
+                    new_list.appendSlice(allocator, orig_items) catch unreachable;
+                }
+                return Dynamic.initList(new_list);
+            }
+            std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{});
+        },
+        .str_type => |sv| {
+            if (b.value == .i64_type) {
+                const count = @max(0, b.value.i64_type);
+                const allocator = std.heap.page_allocator;
+                const total_len = sv.len * @as(usize, @intCast(count));
+                var new_str = allocator.alloc(u8, total_len) catch unreachable;
+                var rep: usize = 0;
+                while (rep < count) : (rep += 1) {
+                    @memcpy(new_str[rep * sv.len .. (rep + 1) * sv.len], sv);
+                }
+                return Dynamic{ .value = .{ .str_type = new_str } };
+            }
+            std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{});
         },
         else => std.debug.panic("TypeError: unsupported operand type(s) for *\n", .{}),
     }
@@ -154,6 +208,23 @@ pub fn floorDiv(a: Dynamic, b: Dynamic) Dynamic {
                     if (bv == 0) std.debug.panic("ZeroDivisionError: integer division or modulo by zero\n", .{});
                     return Dynamic.initInt(@divFloor(av, bv));
                 },
+                .float_type => |bv| {
+                    if (bv == 0.0) std.debug.panic("ZeroDivisionError: float floor division by zero\n", .{});
+                    return Dynamic.initFloat(@floor(@as(f64, @floatFromInt(av)) / bv));
+                },
+                else => std.debug.panic("TypeError: unsupported operand type(s) for //\n", .{}),
+            }
+        },
+        .float_type => |av| {
+            switch (b.value) {
+                .i64_type => |bv| {
+                    if (bv == 0) std.debug.panic("ZeroDivisionError: float floor division by zero\n", .{});
+                    return Dynamic.initFloat(@floor(av / @as(f64, @floatFromInt(bv))));
+                },
+                .float_type => |bv| {
+                    if (bv == 0.0) std.debug.panic("ZeroDivisionError: float floor division by zero\n", .{});
+                    return Dynamic.initFloat(@floor(av / bv));
+                },
                 else => std.debug.panic("TypeError: unsupported operand type(s) for //\n", .{}),
             }
         },
@@ -169,6 +240,25 @@ pub fn mod(a: Dynamic, b: Dynamic) Dynamic {
                     if (bv == 0) std.debug.panic("ZeroDivisionError: integer division or modulo by zero\n", .{});
                     return Dynamic.initInt(@mod(av, bv));
                 },
+                .float_type => |bv| {
+                    if (bv == 0.0) std.debug.panic("ZeroDivisionError: float modulo by zero\n", .{});
+                    const af: f64 = @floatFromInt(av);
+                    return Dynamic.initFloat(af - @floor(af / bv) * bv);
+                },
+                else => std.debug.panic("TypeError: unsupported operand type(s) for %\n", .{}),
+            }
+        },
+        .float_type => |av| {
+            switch (b.value) {
+                .i64_type => |bv| {
+                    if (bv == 0) std.debug.panic("ZeroDivisionError: float modulo by zero\n", .{});
+                    const bf: f64 = @floatFromInt(bv);
+                    return Dynamic.initFloat(av - @floor(av / bf) * bf);
+                },
+                .float_type => |bv| {
+                    if (bv == 0.0) std.debug.panic("ZeroDivisionError: float modulo by zero\n", .{});
+                    return Dynamic.initFloat(av - @floor(av / bv) * bv);
+                },
                 else => std.debug.panic("TypeError: unsupported operand type(s) for %\n", .{}),
             }
         },
@@ -182,6 +272,8 @@ pub const lt = @import("dynamic_ops_cmp.zig").lt;
 pub const gt = @import("dynamic_ops_cmp.zig").gt;
 pub const le = @import("dynamic_ops_cmp.zig").le;
 pub const ge = @import("dynamic_ops_cmp.zig").ge;
+pub const contains = @import("dynamic_ops_cmp.zig").contains;
+pub const notContains = @import("dynamic_ops_cmp.zig").notContains;
 
 
 pub const pow = @import("dynamic_ops_bitwise.zig").pow;
@@ -193,14 +285,7 @@ pub const shr = @import("dynamic_ops_bitwise.zig").shr;
 pub const bitNot = @import("dynamic_ops_bitwise.zig").bitNot;
 
 pub fn isTruthy(a: Dynamic) bool {
-    switch (a.value) {
-        .bool_type => |v| return v,
-        .i64_type => |v| return v != 0,
-        .float_type => |v| return v != 0.0,
-        .str_type => |v| return v.len > 0,
-        .none_type => return false,
-        else => return true,
-    }
+    return a.toBool();
 }
 
 pub fn logicAnd(a: Dynamic, b: Dynamic) Dynamic {

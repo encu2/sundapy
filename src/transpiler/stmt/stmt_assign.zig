@@ -3,18 +3,78 @@ const ast = @import("../../core/ast.zig");
 const Transpiler = @import("../transpiler.zig").Transpiler;
 const mapType = @import("../transpiler.zig").Transpiler.mapType;
 
-pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
-    if (a.type_ann) |t| {
-        try self.var_types.put(a.target, t);
+pub fn transpileTupleAssign(self: *Transpiler, t: anytype, declared_vars: *std.StringHashMap(bool)) anyerror!void {
+    const targets = t.targets.items;
+    self.label_counter += 1;
+    const lid = self.label_counter;
+
+    if (t.value.* == .list_expr and t.value.list_expr.items.items.len == targets.len) {
+        const rhs_items = t.value.list_expr.items.items;
+        for (rhs_items, 0..) |item, idx| {
+            if (idx > 0) try self.emitIndent();
+            try self.emit("const _tmp_{d}_{d} = Dynamic.fromAny(", .{ lid, idx });
+            try self.transpileExpr(item);
+            try self.emit(");\n", .{});
+        }
+        for (targets, 0..) |tgt, idx| {
+            try self.emitIndent();
+            try emitTargetAssign(self, tgt, lid, idx, declared_vars);
+        }
+    } else {
+        try self.emit("var _tup_{d} = Dynamic.fromAny(", .{lid});
+        try self.transpileExpr(t.value);
+        try self.emit(");\n", .{});
+
+        for (targets, 0..) |tgt, idx| {
+            try self.emitIndent();
+            try self.emit("const _tmp_{d}_{d} = _tup_{d}.getItem({d});\n", .{ lid, idx, lid, idx });
+            try self.emitIndent();
+            try emitTargetAssign(self, tgt, lid, idx, declared_vars);
+        }
     }
-    const is_dyn = self.isDynamicTarget(a.target, a.type_ann);
+}
+
+fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, declared_vars: *std.StringHashMap(bool)) anyerror!void {
+    switch (tgt.*) {
+        .identifier => |id| {
+            const name = try self.escapeKeyword(id.name);
+            defer self.allocator.free(name);
+            const already_declared = declared_vars.contains(id.name);
+            if (!already_declared) {
+                try declared_vars.put(id.name, true);
+                try self.emit("var {s} = _tmp_{d}_{d};\n", .{ name, lid, idx });
+                try self.emitIndent();
+                try self.emit("_ = &{s};\n", .{name});
+            } else {
+                try self.emit("{s} = _tmp_{d}_{d};\n", .{ name, lid, idx });
+            }
+        },
+        .getattr => |g| {
+            try self.transpileExpr(g.target);
+            try self.emit(".{s} = _tmp_{d}_{d};\n", .{ g.attr, lid, idx });
+        },
+        .subscript => |s| {
+            if (self.try_depth == 0) {
+                try self.emit("try ", .{});
+            }
+            try self.transpileExpr(s.target);
+            try self.emit(".setDynamicItem(", .{});
+            try self.transpileExpr(s.index);
+            try self.emit(", _tmp_{d}_{d});\n", .{ lid, idx });
+        },
+        else => {
+            try self.emit("// Unhandled tuple assign target\n", .{});
+        },
+    }
+}
+pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
     const already_declared = declared_vars.contains(a.target);
     if (!already_declared) {
         try declared_vars.put(a.target, true);
         if (self.is_strict) {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                if (is_dyn) {
+                if (std.mem.eql(u8, t, "Dynamic")) {
                     try self.emit("Dynamic.fromAny(", .{});
                     try self.transpileExprStrict(a.value);
                     try self.emit(")", .{});
@@ -28,11 +88,13 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         } else {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                if (is_dyn) {
+                if (std.mem.eql(u8, t, "Dynamic")) {
                     try self.emit("Dynamic.fromAny(", .{});
                     try self.transpileExprStrict(a.value);
                     try self.emit(")", .{});
                 } else {
+                    self.is_strict_expr = true;
+                    defer self.is_strict_expr = false;
                     try self.transpileExprStrict(a.value);
                 }
             } else {
@@ -42,6 +104,8 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
                         // We can use Zig's type inference!
                         const t = self.escape_analyzer.primitiveTypeString(a.value);
                         try self.emit("var {s}: {s} = ", .{ a.target, t });
+                        self.is_strict_expr = true;
+                        defer self.is_strict_expr = false;
                         try self.transpileExprStrict(a.value);
                         try self.emit(";\n", .{});
                         if (!already_declared) {
@@ -59,10 +123,16 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
     } else {
         try self.emit("{s} = ", .{ a.target });
         if (a.type_ann != null or self.is_strict) {
-            if (is_dyn) {
-                try self.emit("Dynamic.fromAny(", .{});
-                try self.transpileExprStrict(a.value);
-                try self.emit(")", .{});
+            if (a.type_ann) |t| {
+                if (std.mem.eql(u8, t, "Dynamic")) {
+                    try self.emit("Dynamic.fromAny(", .{});
+                    try self.transpileExprStrict(a.value);
+                    try self.emit(")", .{});
+                } else {
+                    self.is_strict_expr = true;
+                    defer self.is_strict_expr = false;
+                    try self.transpileExprStrict(a.value);
+                }
             } else {
                 try self.transpileExprStrict(a.value);
             }
@@ -74,6 +144,8 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
                 }
             }
             if (is_stack_primitive) {
+                self.is_strict_expr = true;
+                defer self.is_strict_expr = false;
                 try self.transpileExprStrict(a.value);
             } else {
                 try self.transpileExpr(a.value);
@@ -92,16 +164,8 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
 pub fn transpileConstAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
     try declared_vars.put(a.target, true);
     if (a.type_ann) |t| {
-        try self.var_types.put(a.target, t);
-        const is_dyn = self.isDynamicTarget(a.target, a.type_ann);
         try self.emit("const {s}: {s} = ", .{ a.target, mapType(t) });
-        if (is_dyn) {
-            try self.emit("Dynamic.fromAny(", .{});
-            try self.transpileExprStrict(a.value);
-            try self.emit(")", .{});
-        } else {
-            try self.transpileExprStrict(a.value);
-        }
+        try self.transpileExprStrict(a.value);
     } else {
         if (self.is_strict) {
             std.debug.print("Strict Mode Error: Constant '{s}' requires explicit static type annotation.\n", .{a.target});

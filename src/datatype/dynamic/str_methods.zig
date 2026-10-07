@@ -3,16 +3,31 @@ const Dynamic = @import("../dynamic.zig").Dynamic;
 const methods_case = @import("../sequence/string/methods_case.zig");
 const methods_split = @import("../sequence/string/methods_split.zig");
 
-/// ponytail: all ArrayList ops use Zig 0.16 API (.empty + allocator arg)
-pub fn str_split(self: Dynamic, allocator: std.mem.Allocator, sep: Dynamic) !Dynamic {
-    if (self.value != .str_type or sep.value != .str_type) return error.TypeError;
+pub fn str_split(self: Dynamic, allocator: std.mem.Allocator, sep: ?Dynamic) !Dynamic {
+    if (self.value != .str_type) return error.TypeError;
 
-    var slices = try methods_split.split(allocator, self.value.str_type, sep.value.str_type);
+    if (sep) |s| {
+        if (s.value == .str_type) {
+            var slices = try methods_split.split(allocator, self.value.str_type, s.value.str_type);
+            defer slices.deinit(allocator);
+
+            var dynamic_list: std.ArrayList(Dynamic) = .empty;
+            try dynamic_list.ensureTotalCapacity(allocator, slices.items.len);
+            for (slices.items) |slice| {
+                dynamic_list.appendAssumeCapacity(Dynamic.initStr(slice));
+            }
+
+            return Dynamic.initList(dynamic_list);
+        }
+    }
+
+    var slices = try methods_split.splitWhitespace(allocator, self.value.str_type);
     defer slices.deinit(allocator);
 
     var dynamic_list: std.ArrayList(Dynamic) = .empty;
+    try dynamic_list.ensureTotalCapacity(allocator, slices.items.len);
     for (slices.items) |slice| {
-        try dynamic_list.append(allocator, Dynamic.initStr(slice));
+        dynamic_list.appendAssumeCapacity(Dynamic.initStr(slice));
     }
 
     return Dynamic.initList(dynamic_list);
@@ -28,17 +43,35 @@ pub fn str_join(self: Dynamic, allocator: std.mem.Allocator, iterable: Dynamic) 
     if (self.value != .str_type) return error.TypeError;
     if (iterable.value != .list_type) return error.TypeError;
 
-    // ponytail: collect string slices, then std.mem.join
-    var strings: std.ArrayList([]const u8) = .empty;
-    defer strings.deinit(allocator);
-
-    for (iterable.value.list_type.items.items) |item| {
-        if (item.value != .str_type) return error.TypeError;
-        try strings.append(allocator, item.value.str_type);
+    const items = iterable.value.list_type.items.items;
+    if (items.len == 0) return Dynamic.initStr("");
+    if (items.len == 1) {
+        if (items[0].value != .str_type) return error.TypeError;
+        return items[0];
     }
 
-    const result = try std.mem.join(allocator, self.value.str_type, strings.items);
-    return Dynamic.initStr(result);
+    const sep = self.value.str_type;
+    var total_len: usize = sep.len * (items.len - 1);
+    for (items) |item| {
+        if (item.value != .str_type) return error.TypeError;
+        total_len += item.value.str_type.len;
+    }
+
+    const buf = try allocator.alloc(u8, total_len);
+    var offset: usize = 0;
+    for (items, 0..) |item, idx| {
+        if (idx > 0 and sep.len > 0) {
+            @memcpy(buf[offset .. offset + sep.len], sep);
+            offset += sep.len;
+        }
+        const s = item.value.str_type;
+        if (s.len > 0) {
+            @memcpy(buf[offset .. offset + s.len], s);
+            offset += s.len;
+        }
+    }
+
+    return Dynamic.initStr(buf);
 }
 
 pub fn str_upper(self: Dynamic, allocator: std.mem.Allocator) !Dynamic {

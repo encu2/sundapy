@@ -1,32 +1,70 @@
 const std = @import("std");
 const Dynamic = @import("../dynamic.zig").Dynamic;
 
-pub fn builtin_min(self: Dynamic) Dynamic {
-    if (self.value == .list_type) {
-        const items = self.value.list_type.items.items;
-        if (items.len == 0) std.debug.panic("ValueError: min() arg is an empty sequence\n", .{});
-        var m = items[0];
-        for (items[1..]) |it| {
-            if (it.lt(m).value.bool_type) m = it;
-        }
-        return m;
+pub fn builtin_min(args: []const Dynamic) Dynamic {
+    if (args.len == 0) {
+        std.debug.panic("TypeError: min expected at least 1 argument, got 0\n", .{});
     }
-    std.debug.panic("TypeError: min() arg is not iterable\n", .{});
-    unreachable;
+    if (args.len == 1) {
+        const self = args[0];
+        if (self.value == .list_type) {
+            const items = self.value.list_type.items.items;
+            if (items.len == 0) std.debug.panic("ValueError: min() arg is an empty sequence\n", .{});
+            var m = items[0];
+            for (items[1..]) |it| {
+                if (it.lt(m).value.bool_type) m = it;
+            }
+            return m;
+        } else if (self.value == .tuple_type) {
+            const items = self.value.tuple_type.items;
+            if (items.len == 0) std.debug.panic("ValueError: min() arg is an empty sequence\n", .{});
+            var m = items[0];
+            for (items[1..]) |it| {
+                if (it.lt(m).value.bool_type) m = it;
+            }
+            return m;
+        }
+        std.debug.panic("TypeError: min() arg is not iterable\n", .{});
+        unreachable;
+    }
+    var m = args[0];
+    for (args[1..]) |it| {
+        if (it.lt(m).value.bool_type) m = it;
+    }
+    return m;
 }
 
-pub fn builtin_max(self: Dynamic) Dynamic {
-    if (self.value == .list_type) {
-        const items = self.value.list_type.items.items;
-        if (items.len == 0) std.debug.panic("ValueError: max() arg is an empty sequence\n", .{});
-        var m = items[0];
-        for (items[1..]) |it| {
-            if (it.gt(m).value.bool_type) m = it;
-        }
-        return m;
+pub fn builtin_max(args: []const Dynamic) Dynamic {
+    if (args.len == 0) {
+        std.debug.panic("TypeError: max expected at least 1 argument, got 0\n", .{});
     }
-    std.debug.panic("TypeError: max() arg is not iterable\n", .{});
-    unreachable;
+    if (args.len == 1) {
+        const self = args[0];
+        if (self.value == .list_type) {
+            const items = self.value.list_type.items.items;
+            if (items.len == 0) std.debug.panic("ValueError: max() arg is an empty sequence\n", .{});
+            var m = items[0];
+            for (items[1..]) |it| {
+                if (it.gt(m).value.bool_type) m = it;
+            }
+            return m;
+        } else if (self.value == .tuple_type) {
+            const items = self.value.tuple_type.items;
+            if (items.len == 0) std.debug.panic("ValueError: max() arg is an empty sequence\n", .{});
+            var m = items[0];
+            for (items[1..]) |it| {
+                if (it.gt(m).value.bool_type) m = it;
+            }
+            return m;
+        }
+        std.debug.panic("TypeError: max() arg is not iterable\n", .{});
+        unreachable;
+    }
+    var m = args[0];
+    for (args[1..]) |it| {
+        if (it.gt(m).value.bool_type) m = it;
+    }
+    return m;
 }
 
 pub fn builtin_sum(self: Dynamic) Dynamic {

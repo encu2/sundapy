@@ -43,6 +43,34 @@ pub const Lexer = struct {
         return c;
     }
 
+    fn lexStringLiteral(self: *Lexer, quote: u8) []const u8 {
+        const is_triple = (self.peek() == quote and self.pos + 1 < self.source.len and self.source[self.pos + 1] == quote);
+        if (is_triple) {
+            _ = self.advance();
+            _ = self.advance();
+            const s_start = self.pos;
+            while (self.pos + 2 < self.source.len) {
+                if (self.source[self.pos] == quote and self.source[self.pos + 1] == quote and self.source[self.pos + 2] == quote) {
+                    const lex = self.source[s_start..self.pos];
+                    self.pos += 3;
+                    return lex;
+                }
+                if (self.peek() == '\n') self.line += 1;
+                _ = self.advance();
+            }
+            const lex = self.source[s_start..self.pos];
+            return lex;
+        } else {
+            const s_start = self.pos;
+            while (self.peek() != quote and self.peek() != 0 and self.peek() != '\n') {
+                _ = self.advance();
+            }
+            const lex = self.source[s_start..self.pos];
+            if (self.peek() == quote) _ = self.advance();
+            return lex;
+        }
+    }
+
     pub fn nextToken(self: *Lexer) Token {
         if (self.pending_tokens.items.len > 0) {
             return self.pending_tokens.orderedRemove(0);
@@ -129,6 +157,17 @@ pub const Lexer = struct {
                 if (std.mem.eql(u8, lexeme, "#strict")) {
                     return .{ .type = .DirectiveStrict, .lexeme = lexeme, .line = self.line };
                 }
+                if (std.mem.startsWith(u8, lexeme, "#@link:") or std.mem.startsWith(u8, lexeme, "# @link:")) {
+                    const colon_pos = std.mem.indexOfScalar(u8, lexeme, ':').?;
+                    const libs_str = lexeme[colon_pos + 1 ..];
+                    var it = std.mem.splitScalar(u8, libs_str, ',');
+                    while (it.next()) |raw_lib| {
+                        const lib = std.mem.trim(u8, raw_lib, " \t\r\n");
+                        if (lib.len > 0) {
+                            @import("../core/compiler.zig").addLinkLib(self.allocator, lib) catch {};
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -137,13 +176,15 @@ pub const Lexer = struct {
                 if ((c == 'f' or c == 'F') and self.pos + 1 < self.source.len and (self.source[self.pos + 1] == '"' or self.source[self.pos + 1] == '\'')) {
                     _ = self.advance(); // consume f
                     const quote = self.advance(); // consume quote
-                    const fstr_start = self.pos;
-                    while (self.peek() != quote and self.peek() != 0) {
-                        _ = self.advance();
-                    }
-                    const lexeme = self.source[fstr_start..self.pos];
-                    if (self.peek() == quote) _ = self.advance();
+                    const lexeme = self.lexStringLiteral(quote);
                     return .{ .type = .FString, .lexeme = lexeme, .line = self.line };
+                }
+                if ((c == 't' or c == 'T' or c == 'd' or c == 'D') and self.pos + 1 < self.source.len and (self.source[self.pos + 1] == '"' or self.source[self.pos + 1] == '\'')) {
+                    const is_tmpl = (c == 't' or c == 'T');
+                    _ = self.advance();
+                    const quote = self.advance();
+                    const lexeme = self.lexStringLiteral(quote);
+                    return .{ .type = if (is_tmpl) .TString else .DString, .lexeme = lexeme, .line = self.line };
                 }
                 while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') {
                     _ = self.advance();
@@ -156,13 +197,23 @@ pub const Lexer = struct {
             if (std.ascii.isDigit(c)) {
                 const start = self.pos;
                 var is_float = false;
-                while (std.ascii.isDigit(self.peek())) {
+                while (std.ascii.isDigit(self.peek()) or self.peek() == '_' or self.peek() == 'x' or self.peek() == 'X' or self.peek() == 'b' or self.peek() == 'B' or self.peek() == 'o' or self.peek() == 'O' or (self.peek() >= 'a' and self.peek() <= 'f') or (self.peek() >= 'A' and self.peek() <= 'F')) {
                     _ = self.advance();
                 }
                 if (self.peek() == '.') {
                     is_float = true;
                     _ = self.advance();
-                    while (std.ascii.isDigit(self.peek())) {
+                    while (std.ascii.isDigit(self.peek()) or self.peek() == '_') {
+                        _ = self.advance();
+                    }
+                }
+                if (self.peek() == 'e' or self.peek() == 'E') {
+                    is_float = true;
+                    _ = self.advance();
+                    if (self.peek() == '+' or self.peek() == '-') {
+                        _ = self.advance();
+                    }
+                    while (std.ascii.isDigit(self.peek()) or self.peek() == '_') {
                         _ = self.advance();
                     }
                 }
@@ -172,12 +223,7 @@ pub const Lexer = struct {
 
             if (c == '"' or c == '\'') {
                 const quote = self.advance();
-                const start = self.pos;
-                while (self.peek() != quote and self.peek() != 0) {
-                    _ = self.advance();
-                }
-                const lexeme = self.source[start..self.pos];
-                if (self.peek() == quote) _ = self.advance();
+                const lexeme = self.lexStringLiteral(quote);
                 return .{ .type = .String, .lexeme = lexeme, .line = self.line };
             }
 
@@ -196,8 +242,13 @@ pub const Lexer = struct {
                         _ = self.advance();
                         return .{ .type = .Identifier, .lexeme = self.source[start..self.pos], .line = self.line };
                     }
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        return .{ .type = .MinusEq, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     return .{ .type = .Minus, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
+
                 '*' => {
                     if (self.peek() == '*') {
                         _ = self.advance();
@@ -265,10 +316,27 @@ pub const Lexer = struct {
                 '^' => return .{ .type = .Caret, .lexeme = self.source[start..self.pos], .line = self.line },
                 '&' => return .{ .type = .Ampersand, .lexeme = self.source[start..self.pos], .line = self.line },
                 '~' => return .{ .type = .Tilde, .lexeme = self.source[start..self.pos], .line = self.line },
-                ':' => return .{ .type = .Colon, .lexeme = self.source[start..self.pos], .line = self.line },
+                ':' => {
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        return .{ .type = .ColonEq, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
+                    return .{ .type = .Colon, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
                 ';' => return .{ .type = .Semicolon, .lexeme = self.source[start..self.pos], .line = self.line },
                 ',' => return .{ .type = .Comma, .lexeme = self.source[start..self.pos], .line = self.line },
                 '.' => return .{ .type = .Dot, .lexeme = self.source[start..self.pos], .line = self.line },
+                '?' => {
+                    if (self.peek() == '.') {
+                        _ = self.advance();
+                        return .{ .type = .QuestionDot, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
+                    if (self.peek() == '?') {
+                        _ = self.advance();
+                        return .{ .type = .QuestionQuestion, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
+                    return .{ .type = .Identifier, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
                 '@' => return .{ .type = .At, .lexeme = self.source[start..self.pos], .line = self.line },
                 '(' => { self.paren_level += 1; return .{ .type = .LParen, .lexeme = self.source[start..self.pos], .line = self.line }; },
                 ')' => { if (self.paren_level > 0) self.paren_level -= 1; return .{ .type = .RParen, .lexeme = self.source[start..self.pos], .line = self.line }; },
