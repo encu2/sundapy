@@ -2,7 +2,7 @@ const std = @import("std");
 const dynamic = @import("datatype/dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 const gpu_types = @import("datatype/gpu_types.zig");
-const GpuBuffer = gpu_types.GpuBuffer;
+pub const GpuBuffer = gpu_types.GpuBuffer;
 
 // ============================================================================
 // SundaPy GUI Engine - 2D Drawing Primitives & Surface Operations
@@ -356,3 +356,36 @@ pub fn rgb_to_bgr(src_dyn: Dynamic, dst_dyn: Dynamic, count_dyn: Dynamic) anyerr
     dst.toDevice();
     return Dynamic.initNone();
 }
+
+pub fn draw_rect_slice(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    _ = alloc;
+    _ = kwargs;
+    if (args.len < 10) return Dynamic.initNone();
+    const fill = if (args.len > 10) args[10] else Dynamic.initBool(true);
+    return draw_rect(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], fill);
+}
+
+pub fn draw_line_slice(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    _ = alloc;
+    _ = kwargs;
+    if (args.len < 10) return Dynamic.initNone();
+    return draw_line(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+}
+
+pub fn draw_circle_slice(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    _ = alloc;
+    _ = kwargs;
+    if (args.len < 9) return Dynamic.initNone();
+    const fill = if (args.len > 9) args[9] else Dynamic.initBool(true);
+    return draw_circle(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], fill);
+}
+
+pub fn blit_surface_slice(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    _ = alloc;
+    _ = kwargs;
+    if (args.len < 8) return Dynamic.initNone();
+    const ckey = if (args.len > 8) args[8] else Dynamic.initNone();
+    const alpha = if (args.len > 9) args[9] else Dynamic.initFloat(1.0);
+    return blit_surface(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], ckey, alpha);
+}
+

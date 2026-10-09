@@ -2,6 +2,8 @@ const std = @import("std");
 const gpu_types = @import("datatype/gpu_types.zig");
 const GpuBuffer = gpu_types.GpuBuffer;
 const input = @import("screen_input.zig");
+const pool = @import("screen_buffer_pool.zig");
+const dirty = @import("screen_dirty.zig");
 pub const types = @import("screen_x11_types.zig");
 pub const init_mod = @import("screen_x11_init.zig");
 
@@ -53,19 +55,20 @@ pub fn processX11Event(ev_buf: *const [32]u8, is_running_ptr: *bool) void {
             is_running_ptr.* = false;
         }
     } else if (ev_code == 2) {
-        const keycode = ev_buf[1];
-        input.key_states[keycode] = true;
+        input.key_states[ev_buf[1]] = true;
     } else if (ev_code == 3) {
-        const keycode = ev_buf[1];
-        input.key_states[keycode] = false;
+        input.key_states[ev_buf[1]] = false;
     } else if (ev_code == 4) {
         setInputFocus();
+    } else if (ev_code == 12) {
+        // Expose event: force complete redraw
+        dirty.markAllDirty();
     }
 }
 
 pub fn renderX11Buffer(buf: *GpuBuffer, w: usize, h: usize, is_running_ptr: *bool) void {
-    if (!types.x11_connected or types.x11_img_buf == null or types.x11_fd < 0) return;
-    const dest = types.x11_img_buf.?;
+    if (!types.x11_connected or types.x11_fd < 0) return;
+    const dest = types.x11_img_buf orelse return;
     const scale = types.x11_scale;
     const win_w = types.x11_win_w;
     const win_h = types.x11_win_h;
@@ -115,9 +118,7 @@ pub fn renderX11Buffer(buf: *GpuBuffer, w: usize, h: usize, is_running_ptr: *boo
                     }
                 } else {
                     const src_idx = sy * w + sx;
-                    if (src_idx < buf.data.len) {
-                        pixel_val = src32[src_idx];
-                    }
+                    if (src_idx < buf.data.len) pixel_val = src32[src_idx];
                 }
 
                 var dy: usize = 0;
@@ -136,57 +137,82 @@ pub fn renderX11Buffer(buf: *GpuBuffer, w: usize, h: usize, is_running_ptr: *boo
         }
     }
 
-    if (types.x11_shm_active) {
-        var shm_pi: [40]u8 = undefined;
-        shm_pi[0] = types.x11_shm_opcode;
-        shm_pi[1] = 3;
-        std.mem.writeInt(u16, shm_pi[2..4], 10, .little);
-        std.mem.writeInt(u32, shm_pi[4..8], types.x11_win_id, .little);
-        std.mem.writeInt(u32, shm_pi[8..12], types.x11_gc_id, .little);
-        std.mem.writeInt(u16, shm_pi[12..14], win_w, .little);
-        std.mem.writeInt(u16, shm_pi[14..16], win_h, .little);
-        std.mem.writeInt(u16, shm_pi[16..18], 0, .little);
-        std.mem.writeInt(u16, shm_pi[18..20], 0, .little);
-        std.mem.writeInt(u16, shm_pi[20..22], win_w, .little);
-        std.mem.writeInt(u16, shm_pi[22..24], win_h, .little);
-        std.mem.writeInt(u16, shm_pi[24..26], 0, .little);
-        std.mem.writeInt(u16, shm_pi[26..28], 0, .little);
-        shm_pi[28] = 24;
-        shm_pi[29] = 2;
-        shm_pi[30] = 0;
-        shm_pi[31] = 0;
-        std.mem.writeInt(u32, shm_pi[32..36], types.x11_shmseg_id, .little);
-        std.mem.writeInt(u32, shm_pi[36..40], 0, .little);
-        _ = std.os.linux.write(types.x11_fd, &shm_pi, 40);
+    // Compute dirty regions against previous buffer for partial update scanout
+    const prev32 = pool.getPrevBuffer32();
+    if (prev32.len == @as(usize, win_w) * win_h) {
+        _ = dirty.computeDirtyTiles(dst32, prev32.ptr, win_w, win_h);
     } else {
-        const rows_per_chunk: u16 = 32;
-        var y_start: u16 = 0;
-        while (y_start < win_h) : (y_start += rows_per_chunk) {
-            const chunk_h: u16 = @min(rows_per_chunk, win_h - y_start);
-            const chunk_bytes: usize = @as(usize, win_w) * chunk_h * 4;
-            const pi_hdr_len = 24;
-            const total_pi_len: u16 = @intCast((pi_hdr_len + chunk_bytes) / 4);
+        dirty.markAllDirty();
+    }
 
-            var pi_hdr: [24]u8 = undefined;
-            pi_hdr[0] = 72;
-            pi_hdr[1] = 2;
-            std.mem.writeInt(u16, pi_hdr[2..4], total_pi_len, .little);
-            std.mem.writeInt(u32, pi_hdr[4..8], types.x11_win_id, .little);
-            std.mem.writeInt(u32, pi_hdr[8..12], types.x11_gc_id, .little);
-            std.mem.writeInt(u16, pi_hdr[12..14], win_w, .little);
-            std.mem.writeInt(u16, pi_hdr[14..16], chunk_h, .little);
-            std.mem.writeInt(u16, pi_hdr[16..18], 0, .little);
-            std.mem.writeInt(u16, pi_hdr[18..20], y_start, .little);
-            pi_hdr[20] = 0;
-            pi_hdr[21] = 24;
-            pi_hdr[22] = 0;
-            pi_hdr[23] = 0;
+    // Perform scanout only if there are dirty regions
+    if (!dirty.isClean()) {
+        const bbox = dirty.getBoundingBox() orelse dirty.DirtyRect{
+            .x = 0,
+            .y = 0,
+            .w = win_w,
+            .h = win_h,
+        };
 
-            _ = std.os.linux.write(types.x11_fd, &pi_hdr, 24);
-            const data_offset = @as(usize, y_start) * win_w * 4;
-            _ = std.os.linux.write(types.x11_fd, dest.ptr + data_offset, chunk_bytes);
+        if (types.x11_shm_active) {
+            var shm_pi: [40]u8 = undefined;
+            shm_pi[0] = types.x11_shm_opcode;
+            shm_pi[1] = 3;
+            std.mem.writeInt(u16, shm_pi[2..4], 10, .little);
+            std.mem.writeInt(u32, shm_pi[4..8], types.x11_win_id, .little);
+            std.mem.writeInt(u32, shm_pi[8..12], types.x11_gc_id, .little);
+            std.mem.writeInt(u16, shm_pi[12..14], win_w, .little);
+            std.mem.writeInt(u16, shm_pi[14..16], win_h, .little);
+            std.mem.writeInt(u16, shm_pi[16..18], bbox.x, .little);
+            std.mem.writeInt(u16, shm_pi[18..20], bbox.y, .little);
+            std.mem.writeInt(u16, shm_pi[20..22], bbox.w, .little);
+            std.mem.writeInt(u16, shm_pi[22..24], bbox.h, .little);
+            std.mem.writeInt(u16, shm_pi[24..26], bbox.x, .little);
+            std.mem.writeInt(u16, shm_pi[26..28], bbox.y, .little);
+            shm_pi[28] = 24;
+            shm_pi[29] = 2;
+            shm_pi[30] = 0;
+            shm_pi[31] = 0;
+            std.mem.writeInt(u32, shm_pi[32..36], types.x11_shmseg_id, .little);
+            const shm_offset = pool.getScanoutShmOffset();
+            std.mem.writeInt(u32, shm_pi[36..40], shm_offset, .little);
+            _ = std.os.linux.write(types.x11_fd, &shm_pi, 40);
+        } else {
+            const rows_per_chunk: u16 = 32;
+            var y_cur = bbox.y;
+            const y_end = bbox.y + bbox.h;
+            while (y_cur < y_end) : (y_cur += rows_per_chunk) {
+                const chunk_h = @min(rows_per_chunk, y_end - y_cur);
+                const chunk_bytes: usize = @as(usize, win_w) * chunk_h * 4;
+                const pi_hdr_len = 24;
+                const total_pi_len: u16 = @intCast((pi_hdr_len + chunk_bytes) / 4);
+
+                var pi_hdr: [24]u8 = undefined;
+                pi_hdr[0] = 72; // PutImage
+                pi_hdr[1] = 2; // ZPixmap
+                std.mem.writeInt(u16, pi_hdr[2..4], total_pi_len, .little);
+                std.mem.writeInt(u32, pi_hdr[4..8], types.x11_win_id, .little);
+                std.mem.writeInt(u32, pi_hdr[8..12], types.x11_gc_id, .little);
+                std.mem.writeInt(u16, pi_hdr[12..14], win_w, .little);
+                std.mem.writeInt(u16, pi_hdr[14..16], chunk_h, .little);
+                std.mem.writeInt(u16, pi_hdr[16..18], 0, .little);
+                std.mem.writeInt(u16, pi_hdr[18..20], y_cur, .little);
+                pi_hdr[20] = 0;
+                pi_hdr[21] = 24;
+                pi_hdr[22] = 0;
+                pi_hdr[23] = 0;
+
+                _ = std.os.linux.write(types.x11_fd, &pi_hdr, 24);
+                const data_offset = @as(usize, y_cur) * win_w * 4;
+                _ = std.os.linux.write(types.x11_fd, dest.ptr + data_offset, chunk_bytes);
+            }
         }
     }
+
+    // Zero-allocation buffer rotation & swap
+    pool.swapBuffers();
+    types.x11_img_buf = pool.getBackBuffer();
+    dirty.clearDirty();
 
     var ev_buf: [64]u8 = undefined;
     while (true) {
@@ -198,6 +224,8 @@ pub fn renderX11Buffer(buf: *GpuBuffer, w: usize, h: usize, is_running_ptr: *boo
 
 pub fn closeX11Window() void {
     input.restoreTerminal();
+    pool.deinitPool(std.heap.c_allocator);
+
     if (types.x11_connected and types.x11_fd >= 0) {
         if (types.x11_shm_active) {
             var detach_buf: [8]u8 = undefined;

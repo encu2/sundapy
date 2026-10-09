@@ -160,6 +160,51 @@ pub const GpuArena = struct {
         self.allocated_count = 0;
     }
 
+    pub fn getStats(self: *const GpuArena) !Dynamic {
+        var total_capacity: usize = 0;
+        var total_used: usize = 0;
+        for (self.blocks.items) |blk| {
+            total_capacity += blk.total_bytes;
+            total_used += blk.allocated_bytes;
+        }
+        const free_bytes = if (total_capacity >= total_used) total_capacity - total_used else 0;
+        const frag_pct: f64 = if (total_capacity > 0)
+            (1.0 - (@as(f64, @floatFromInt(total_used)) / @as(f64, @floatFromInt(total_capacity)))) * 100.0
+        else
+            0.0;
+
+        var dict = Dynamic.initDict(std.heap.c_allocator);
+        try dict.value.dict_type.put(Dynamic.initStr("total_capacity_bytes"), Dynamic.initInt(@intCast(total_capacity)));
+        try dict.value.dict_type.put(Dynamic.initStr("allocated_bytes"), Dynamic.initInt(@intCast(total_used)));
+        try dict.value.dict_type.put(Dynamic.initStr("free_bytes"), Dynamic.initInt(@intCast(free_bytes)));
+        try dict.value.dict_type.put(Dynamic.initStr("block_count"), Dynamic.initInt(@intCast(self.blocks.items.len)));
+        try dict.value.dict_type.put(Dynamic.initStr("buffer_count"), Dynamic.initInt(@intCast(self.allocated_count)));
+        try dict.value.dict_type.put(Dynamic.initStr("fragmentation_pct"), Dynamic.initFloat(frag_pct));
+        return dict;
+    }
+
+    pub fn defragment(self: *GpuArena) !Dynamic {
+        var reclaimed_blocks: usize = 0;
+        var reclaimed_bytes: usize = 0;
+
+        if (self.blocks.items.len > 1) {
+            var i: usize = self.blocks.items.len - 1;
+            while (i > 0) : (i -= 1) {
+                if (self.blocks.items[i].allocated_bytes == 0) {
+                    var blk = self.blocks.swapRemove(i);
+                    reclaimed_bytes += blk.total_bytes;
+                    blk.deinit();
+                    reclaimed_blocks += 1;
+                }
+            }
+        }
+
+        var dict = Dynamic.initDict(std.heap.c_allocator);
+        try dict.value.dict_type.put(Dynamic.initStr("reclaimed_blocks"), Dynamic.initInt(@intCast(reclaimed_blocks)));
+        try dict.value.dict_type.put(Dynamic.initStr("reclaimed_bytes"), Dynamic.initInt(@intCast(reclaimed_bytes)));
+        return dict;
+    }
+
     pub fn deinit(self: *GpuArena) void {
         for (self.blocks.items) |*blk| {
             blk.deinit();
@@ -198,3 +243,19 @@ pub fn arena_reset() anyerror!Dynamic {
     }
     return Dynamic.initNone();
 }
+
+pub fn arena_stats() anyerror!Dynamic {
+    const arena = getGlobalArena();
+    return arena.getStats();
+}
+
+pub fn arena_defragment() anyerror!Dynamic {
+    const arena = getGlobalArena();
+    return arena.defragment();
+}
+
+pub fn arena_sparse_alloc(size_dyn: Dynamic) anyerror!Dynamic {
+    const sparse_vm = @import("gpu_sparse_vm.zig");
+    return sparse_vm.sparse_buffer(size_dyn, null);
+}
+

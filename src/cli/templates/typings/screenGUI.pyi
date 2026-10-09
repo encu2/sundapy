@@ -95,3 +95,39 @@ def get_gpu_usage() -> float:
 def get_render_time_ms() -> float:
     """Mengembalikan durasi waktu render frame dalam milidetik."""
     ...
+
+def get_compression_ratio() -> float:
+    """Mengembalikan rasio kompresi bandwidth framebuffer monitor saat ini."""
+    ...
+
+def get_compression_stats() -> Dict[str, Any]:
+    """Mengembalikan rincian statistik kompresi tile framebuffer (clean, solid, rle, bandwidth saved)."""
+    ...
+
+def reset_compression_stats() -> None:
+    """Mereset akumulator statistik kompresi layar."""
+    ...
+
+def compress_framebuffer(buffer: Any, width: int, height: int) -> Dict[str, Any]:
+    """
+    ### Mengompresi Buffer Tampilan Layar
+    Mengompresi framebuffer menggunakan sistem tile 16x16 delta RLE hemat bandwidth.
+    """
+    ...
+
+def get_dirty_percentage() -> float:
+    """Mengembalikan persentase area tile framebuffer yang berubah pada frame terakhir (0.0 s.d. 100.0%)."""
+    ...
+
+def get_buffer_mode() -> str:
+    """Mengembalikan mode presentasi buffer aktif ('X11 SHM Zero-Copy Double-Buffer' atau 'Heap Zero-Allocation Triple-Buffer')."""
+    ...
+
+def get_saved_bandwidth_mb() -> float:
+    """Mengembalikan total Megabytes bandwidth scanout bus layar yang berhasil dihemat via delta kompresi."""
+    ...
+
+def force_redraw() -> None:
+    """Memaksa render ulang penuh seluruh tile layar pada frame berikutnya."""
+    ...
+

@@ -128,7 +128,7 @@ for root, _, files in os.walk("src/datatype"):
 all_files.sort(key=lambda x: x[0])
 
 with open("src/embedded_datatype.zig", "w") as out:
-    out.write("pub const files = .{\n")
+    out.write("pub const files = [_]struct { []const u8, []const u8 } {\n")
     for rel_path, embed_path in all_files:
         out.write(f'    .{{ "{rel_path}", @embedFile("{embed_path}") }},\n')
     out.write("};\n")

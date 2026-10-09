@@ -1,6 +1,33 @@
 const std = @import("std");
 const dynamic = @import("dynamic.zig");
 const Dynamic = dynamic.Dynamic;
+const kernel = @import("gpu_kernel_types.zig");
+const ops = @import("gpu_buffer_ops.zig");
+
+pub const BoundKernel = kernel.BoundKernel;
+pub const createBoundKernel = kernel.createBoundKernel;
+pub const LaunchFn = kernel.LaunchFn;
+pub var launch_fn: ?LaunchFn = null;
+
+pub var buffer_free_fn: ?*const fn (u64) void = null;
+pub var buffer_to_device_fn: ?*const fn (*GpuBuffer) void = null;
+pub var buffer_to_host_fn: ?*const fn (*GpuBuffer) void = null;
+pub var buffer_item_set_fn: ?*const fn (*GpuBuffer, usize, f32) void = null;
+pub var buffer_sync_fn: ?*const fn () void = null;
+pub var buffer_decompress_fn: ?*const fn (*GpuBuffer) anyerror!*GpuBuffer = null;
+pub var buffer_slab_free_fn: ?*const fn ([*]u8) void = null;
+pub var buffer_sparse_deinit_fn: ?*const fn (*anyopaque) void = null;
+pub var buffer_sparse_get_fn: ?*const fn (*anyopaque, usize) anyerror!f32 = null;
+pub var buffer_sparse_set_fn: ?*const fn (*anyopaque, usize, f32) anyerror!void = null;
+pub var buffer_sparse_stats_fn: ?*const fn (*anyopaque) anyerror!Dynamic = null;
+pub var buffer_sparse_commit_fn: ?*const fn (*anyopaque, usize) anyerror!void = null;
+pub var buffer_sparse_decommit_fn: ?*const fn (*anyopaque, usize) void = null;
+pub var buffer_sparse_is_committed_fn: ?*const fn (*anyopaque, usize) bool = null;
+pub var buffer_sparse_compress_idle_fn: ?*const fn (*anyopaque) anyerror!usize = null;
+pub var buffer_compress_hook: ?*const fn (*GpuBuffer, []const u8) anyerror!void = null;
+pub var buffer_decompress_hook: ?*const fn (*GpuBuffer) anyerror!void = null;
+pub var budget_register_fn: ?*const fn (*GpuBuffer) void = null;
+pub var budget_unregister_fn: ?*const fn (*GpuBuffer) void = null;
 
 pub const GpuDtype = enum {
     f32,
@@ -8,6 +35,12 @@ pub const GpuDtype = enum {
     i32,
     i64,
     u8,
+    f16,
+    bf16,
+    int8,
+    fp8_e4m3,
+    fp8_e5m2,
+    fp4_e2m1,
 
     pub fn sizeOf(self: GpuDtype) usize {
         return switch (self) {
@@ -15,7 +48,8 @@ pub const GpuDtype = enum {
             .f64 => 8,
             .i32 => 4,
             .i64 => 8,
-            .u8 => 1,
+            .u8, .int8, .fp8_e4m3, .fp8_e5m2, .fp4_e2m1 => 1,
+            .f16, .bf16 => 2,
         };
     }
 
@@ -26,6 +60,12 @@ pub const GpuDtype = enum {
             .i32 => "i32",
             .i64 => "i64",
             .u8 => "u8",
+            .f16 => "f16",
+            .bf16 => "bf16",
+            .int8 => "int8",
+            .fp8_e4m3 => "fp8_e4m3",
+            .fp8_e5m2 => "fp8_e5m2",
+            .fp4_e2m1 => "fp4_e2m1",
         };
     }
 
@@ -34,8 +74,31 @@ pub const GpuDtype = enum {
         if (std.mem.eql(u8, str, "i32") or std.mem.eql(u8, str, "int32")) return .i32;
         if (std.mem.eql(u8, str, "i64") or std.mem.eql(u8, str, "int64")) return .i64;
         if (std.mem.eql(u8, str, "u8") or std.mem.eql(u8, str, "uint8") or std.mem.eql(u8, str, "byte")) return .u8;
+        if (std.mem.eql(u8, str, "f16") or std.mem.eql(u8, str, "float16") or std.mem.eql(u8, str, "half")) return .f16;
+        if (std.mem.eql(u8, str, "bf16") or std.mem.eql(u8, str, "bfloat16")) return .bf16;
+        if (std.mem.eql(u8, str, "int8") or std.mem.eql(u8, str, "i8")) return .int8;
+        if (std.mem.eql(u8, str, "fp8") or std.mem.eql(u8, str, "fp8_e4m3") or std.mem.eql(u8, str, "e4m3")) return .fp8_e4m3;
+        if (std.mem.eql(u8, str, "fp8_e5m2") or std.mem.eql(u8, str, "e5m2")) return .fp8_e5m2;
+        if (std.mem.eql(u8, str, "fp4") or std.mem.eql(u8, str, "fp4_e2m1") or std.mem.eql(u8, str, "e2m1")) return .fp4_e2m1;
         return .f32;
     }
+};
+
+pub const CompressionInfo = struct {
+    scheme: []const u8 = "none",
+    original_bytes: usize = 0,
+    compressed_bytes: usize = 0,
+    compression_ratio: f32 = 1.0,
+    savings_pct: f32 = 0.0,
+    is_compressed: bool = false,
+    scale: f32 = 1.0,
+    zero_point: i8 = 0,
+    rows: usize = 0,
+    cols: usize = 0,
+    nnz: usize = 0,
+    raw_payload: ?[]u8 = null,
+    sparse_ptr: ?*anyopaque = null,
+    compact_ptr: ?*anyopaque = null,
 };
 
 pub const GpuBuffer = struct {
@@ -46,11 +109,15 @@ pub const GpuBuffer = struct {
     dev_ptr: u64 = 0,
     is_device_allocated: bool = false,
     is_managed: bool = false,
-
     shape: [4]usize = [_]usize{ 0, 0, 0, 0 },
     strides: [4]usize = [_]usize{ 1, 1, 1, 1 },
     ndim: usize = 1,
     last_method: []const u8 = "",
+    compression_info: ?*CompressionInfo = null,
+    is_suballocated: bool = false,
+    is_sparse_vm: bool = false,
+    sparse_vm_ptr: ?*anyopaque = null,
+    slab_slot_ptr: ?*anyopaque = null,
 
     pub fn init(allocator: std.mem.Allocator, size: usize) !*GpuBuffer {
         return initWithDtype(allocator, size, .f32);
@@ -66,9 +133,6 @@ pub const GpuBuffer = struct {
             .size = size,
             .data = mem,
             .dtype = dt,
-            .dev_ptr = 0,
-            .is_device_allocated = false,
-            .is_managed = false,
             .shape = [_]usize{ size, 1, 1, 1 },
             .strides = [_]usize{ 1, 1, 1, 1 },
             .ndim = 1,
@@ -77,6 +141,15 @@ pub const GpuBuffer = struct {
     }
 
     pub fn deinit(self: *GpuBuffer) void {
+        if (budget_unregister_fn) |bunreg| {
+            bunreg(self);
+        }
+        if (self.is_sparse_vm and self.sparse_vm_ptr != null) {
+            if (buffer_sparse_deinit_fn) |sdeinit| {
+                sdeinit(self.sparse_vm_ptr.?);
+            }
+            self.sparse_vm_ptr = null;
+        }
         if (buffer_free_fn) |free_fn| {
             if (self.is_device_allocated and self.dev_ptr != 0) {
                 free_fn(self.dev_ptr);
@@ -84,7 +157,16 @@ pub const GpuBuffer = struct {
                 self.is_device_allocated = false;
             }
         }
-        if (!self.is_managed) {
+        if (self.compression_info) |ci| {
+            if (ci.raw_payload) |p| self.allocator.free(p);
+            self.allocator.destroy(ci);
+            self.compression_info = null;
+        }
+        if (self.is_suballocated) {
+            if (buffer_slab_free_fn) |sfree| {
+                if (self.data.len > 0) sfree(@ptrCast(self.data.ptr));
+            }
+        } else if (!self.is_managed and !self.is_sparse_vm) {
             self.allocator.free(self.data);
         }
         self.allocator.destroy(self);
@@ -95,9 +177,7 @@ pub const GpuBuffer = struct {
             if (buffer_sync_fn) |sfn| sfn();
             return;
         }
-        if (buffer_to_device_fn) |fn_ptr| {
-            fn_ptr(self);
-        }
+        if (buffer_to_device_fn) |fn_ptr| fn_ptr(self);
     }
 
     pub fn toHost(self: *GpuBuffer) void {
@@ -105,197 +185,37 @@ pub const GpuBuffer = struct {
             if (buffer_sync_fn) |sfn| sfn();
             return;
         }
-        if (buffer_to_host_fn) |fn_ptr| {
-            fn_ptr(self);
-        }
+        if (buffer_to_host_fn) |fn_ptr| fn_ptr(self);
     }
 
     pub fn getItem(self: *GpuBuffer, index: Dynamic) !Dynamic {
-        var idx: usize = 0;
-        if (index.value == .i64_type) {
-            const i = index.value.i64_type;
-            if (i < 0 or i >= self.size) return error.IndexError;
-            idx = @intCast(i);
-        } else if (index.value == .tuple_type or index.value == .list_type) {
-            const items = if (index.value == .tuple_type) index.value.tuple_type.items else index.value.list_type.items.items;
-            if (self.ndim > 0 and items.len == self.ndim) {
-                var offset: usize = 0;
-                for (items, 0..) |item, dim_i| {
-                    if (item.value != .i64_type) return error.TypeError;
-                    const coord = item.value.i64_type;
-                    if (coord < 0 or coord >= self.shape[dim_i]) return error.IndexError;
-                    offset += @as(usize, @intCast(coord)) * self.strides[dim_i];
-                }
-                if (offset >= self.size) return error.IndexError;
-                idx = offset;
-            } else {
-                return error.IndexError;
-            }
-        } else {
-            return error.TypeError;
-        }
-        if (self.dtype == .i32) {
-            const s: [*]const i32 = @ptrCast(@alignCast(self.data.ptr));
-            return Dynamic.initInt(@intCast(s[idx]));
-        } else if (self.dtype == .u8) {
-            const s: [*]const u8 = @ptrCast(self.data.ptr);
-            return Dynamic.initInt(@intCast(s[idx]));
-        } else if (self.dtype == .i64) {
-            const s: [*]const i64 = @ptrCast(@alignCast(self.data.ptr));
-            return Dynamic.initInt(s[idx]);
-        }
-        return Dynamic.initFloat(@floatCast(self.data[idx]));
+        return ops.getItem(self, index);
     }
 
     pub fn setItem(self: *GpuBuffer, index: Dynamic, val: Dynamic) !void {
-        var idx: usize = 0;
-        if (index.value == .i64_type) {
-            const i = index.value.i64_type;
-            if (i < 0 or i >= self.size) return error.IndexError;
-            idx = @intCast(i);
-        } else if (index.value == .tuple_type or index.value == .list_type) {
-            const items = if (index.value == .tuple_type) index.value.tuple_type.items else index.value.list_type.items.items;
-            if (self.ndim > 0 and items.len == self.ndim) {
-                var offset: usize = 0;
-                for (items, 0..) |item, dim_i| {
-                    if (item.value != .i64_type) return error.TypeError;
-                    const coord = item.value.i64_type;
-                    if (coord < 0 or coord >= self.shape[dim_i]) return error.IndexError;
-                    offset += @as(usize, @intCast(coord)) * self.strides[dim_i];
-                }
-                if (offset >= self.size) return error.IndexError;
-                idx = offset;
-            } else {
-                return error.IndexError;
-            }
-        } else {
-            return error.TypeError;
-        }
-
-        if (self.dtype == .i32) {
-            const s: [*]i32 = @ptrCast(@alignCast(self.data.ptr));
-            s[idx] = switch (val.value) { .i64_type => |v| @intCast(v), .float_type => |v| @intFromFloat(v), else => 0 };
-        } else if (self.dtype == .u8) {
-            const s: [*]u8 = @ptrCast(self.data.ptr);
-            s[idx] = switch (val.value) { .i64_type => |v| @intCast(v & 0xFF), .float_type => |v| @intFromFloat(@min(255.0, @max(0.0, v))), else => 0 };
-        } else if (self.dtype == .i64) {
-            const s: [*]i64 = @ptrCast(@alignCast(self.data.ptr));
-            s[idx] = switch (val.value) { .i64_type => |v| v, .float_type => |v| @intFromFloat(v), else => 0 };
-        } else {
-            const float_val: f32 = switch (val.value) {
-                .float_type => |f| @floatCast(f),
-                .i64_type => |i| @floatFromInt(i),
-                .i32_type => |i| @floatFromInt(i),
-                .u32_type => |u| @floatFromInt(u),
-                .u64_type => |u| @floatFromInt(u),
-                else => return error.TypeError,
-            };
-
-            self.data[idx] = float_val;
-            if (buffer_item_set_fn) |fn_ptr| {
-                fn_ptr(self, idx, float_val);
-            }
-        }
+        return ops.setItem(self, index, val);
     }
 
     pub fn toList(self: *GpuBuffer, allocator_mem: std.mem.Allocator) !Dynamic {
         self.toHost();
         var list = std.ArrayList(Dynamic).empty;
-        for (self.data) |v| {
-            try list.append(allocator_mem, Dynamic.initFloat(@floatCast(v)));
+        for (0..self.size) |i| {
+            const item = try self.getItem(Dynamic.initInt(@intCast(i)));
+            try list.append(allocator_mem, item);
         }
         return Dynamic.initList(list);
     }
 
     pub fn copyFromList(self: *GpuBuffer, list_dyn: Dynamic) !void {
-        if (list_dyn.value != .list_type) return error.TypeError;
-        const items = list_dyn.value.list_type.items.items;
-        const count = @min(self.size, items.len);
-        for (0..count) |i| {
-            switch (items[i].value) {
-                .float_type => |f| self.data[i] = @floatCast(f),
-                .i64_type => |v| self.data[i] = @floatFromInt(v),
-                else => {},
-            }
-        }
-        self.toDevice();
+        return ops.copyFromList(self, list_dyn);
     }
 
     pub fn callMethod(self: *GpuBuffer, alloc_mem: std.mem.Allocator, args: []const Dynamic) anyerror!Dynamic {
-        if (std.mem.eql(u8, self.last_method, "fill")) {
-            var val: f32 = 0.0;
-            if (args.len > 0) {
-                if (args[0].value == .float_type) {
-                    val = @floatCast(args[0].value.float_type);
-                } else if (args[0].value == .i64_type) {
-                    val = @floatFromInt(args[0].value.i64_type);
-                }
-            }
-            if (args.len >= 2 and args[0].value == .gpu_buffer_type) {
-                if (args[1].value == .float_type) {
-                    val = @floatCast(args[1].value.float_type);
-                } else if (args[1].value == .i64_type) {
-                    val = @floatFromInt(args[1].value.i64_type);
-                }
-            }
-            @memset(self.data, val);
-            self.toDevice();
-            return Dynamic.initNone();
-        } else if (std.mem.eql(u8, self.last_method, "to_raw_handle")) {
-            var dict = Dynamic.initDict(std.heap.c_allocator);
-            try dict.value.dict_type.put(Dynamic.initStr("dev_ptr"), Dynamic.initInt(@intCast(self.dev_ptr)));
-            try dict.value.dict_type.put(Dynamic.initStr("byte_size"), Dynamic.initInt(@intCast(self.size * @sizeOf(f32))));
-            try dict.value.dict_type.put(Dynamic.initStr("stride"), Dynamic.initInt(@sizeOf(f32)));
-            try dict.value.dict_type.put(Dynamic.initStr("is_managed"), Dynamic.initBool(self.is_managed));
-            try dict.value.dict_type.put(Dynamic.initStr("is_device"), Dynamic.initBool(self.is_device_allocated));
-            return dict;
-        } else if (std.mem.eql(u8, self.last_method, "to_list")) {
-            return self.toList(alloc_mem);
-        } else if (std.mem.eql(u8, self.last_method, "to_device")) {
-            self.toDevice();
-            return Dynamic.initNone();
-        } else if (std.mem.eql(u8, self.last_method, "to_host")) {
-            self.toHost();
-            return Dynamic.initNone();
-        } else if (std.mem.eql(u8, self.last_method, "copy_from_list")) {
-            const list_arg = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else Dynamic.initNone();
-            try self.copyFromList(list_arg);
-            return Dynamic.initNone();
-        } else if (std.mem.eql(u8, self.last_method, "free")) {
-            self.deinit();
-            return Dynamic.initNone();
-        }
-        return Dynamic.initNone();
+        return ops.callMethod(self, alloc_mem, args);
     }
 
     pub fn asDynamic(self: *GpuBuffer) Dynamic {
         return Dynamic{ .value = .{ .gpu_buffer_type = @ptrCast(self) } };
-    }
-};
-
-// Global hook pointers set by sundapy_std/gpu.zig when loaded
-pub var buffer_free_fn: ?*const fn (u64) void = null;
-pub var buffer_to_device_fn: ?*const fn (*GpuBuffer) void = null;
-pub var buffer_to_host_fn: ?*const fn (*GpuBuffer) void = null;
-pub var buffer_item_set_fn: ?*const fn (*GpuBuffer, usize, f32) void = null;
-pub var buffer_sync_fn: ?*const fn () void = null;
-pub const LaunchFn = *const fn (std.mem.Allocator, Dynamic, usize, usize, usize, usize, usize, usize, []const Dynamic) anyerror!Dynamic;
-pub var launch_fn: ?LaunchFn = null;
-
-pub const BoundKernel = struct {
-    kernel_fn: Dynamic,
-    grid_x: usize,
-    grid_y: usize,
-    grid_z: usize,
-    block_x: usize,
-    block_y: usize,
-    block_z: usize,
-
-    pub fn call(self: *BoundKernel, allocator_mem: std.mem.Allocator, args: []const Dynamic) anyerror!Dynamic {
-        if (launch_fn) |lfn| {
-            return lfn(allocator_mem, self.kernel_fn, self.grid_x, self.grid_y, self.grid_z, self.block_x, self.block_y, self.block_z, args);
-        }
-        return Dynamic.initNone();
     }
 };
 
@@ -316,30 +236,39 @@ pub fn bufferSetItem(ptr: *anyopaque, index: Dynamic, val: Dynamic) anyerror!voi
 
 pub fn bufferGetAttribute(ptr: *anyopaque, attr: []const u8) Dynamic {
     const buf: *GpuBuffer = @ptrCast(@alignCast(ptr));
-    if (std.mem.eql(u8, attr, "size")) {
-        return Dynamic.initInt(@intCast(buf.size));
-    } else if (std.mem.eql(u8, attr, "ndim")) {
-        return Dynamic.initInt(@intCast(buf.ndim));
-    } else if (std.mem.eql(u8, attr, "dev_ptr") or std.mem.eql(u8, attr, "ptr")) {
-        return Dynamic.initInt(@intCast(buf.dev_ptr));
-    } else if (std.mem.eql(u8, attr, "shape")) {
+    if (std.mem.eql(u8, attr, "size")) return Dynamic.initInt(@intCast(buf.size));
+    if (std.mem.eql(u8, attr, "ndim")) return Dynamic.initInt(@intCast(buf.ndim));
+    if (std.mem.eql(u8, attr, "dev_ptr") or std.mem.eql(u8, attr, "ptr")) return Dynamic.initInt(@intCast(buf.dev_ptr));
+    if (std.mem.eql(u8, attr, "dtype")) return Dynamic.initStr(buf.dtype.name());
+    if (std.mem.eql(u8, attr, "itemsize")) return Dynamic.initInt(@intCast(buf.dtype.sizeOf()));
+    if (std.mem.eql(u8, attr, "nbytes")) return Dynamic.initInt(@intCast(buf.size * buf.dtype.sizeOf()));
+
+    // Sparse VM & Slab attributes
+    if (std.mem.eql(u8, attr, "is_sparse_vm")) return Dynamic.initBool(buf.is_sparse_vm);
+    if (std.mem.eql(u8, attr, "is_suballocated")) return Dynamic.initBool(buf.is_suballocated);
+    if (std.mem.eql(u8, attr, "virtual_size")) return Dynamic.initInt(@intCast(buf.size * buf.dtype.sizeOf()));
+
+    // Compression attributes
+    if (std.mem.eql(u8, attr, "is_compressed")) return Dynamic.initBool(if (buf.compression_info) |ci| ci.is_compressed else false);
+    if (std.mem.eql(u8, attr, "compression_ratio")) return Dynamic.initFloat(if (buf.compression_info) |ci| ci.compression_ratio else 1.0);
+    if (std.mem.eql(u8, attr, "savings_pct")) return Dynamic.initFloat(if (buf.compression_info) |ci| ci.savings_pct else 0.0);
+    if (std.mem.eql(u8, attr, "compressed_bytes")) return Dynamic.initInt(@intCast(if (buf.compression_info) |ci| ci.compressed_bytes else buf.size * buf.dtype.sizeOf()));
+    if (std.mem.eql(u8, attr, "original_bytes")) return Dynamic.initInt(@intCast(if (buf.compression_info) |ci| ci.original_bytes else buf.size * buf.dtype.sizeOf()));
+    if (std.mem.eql(u8, attr, "scheme") or std.mem.eql(u8, attr, "compression_scheme")) return Dynamic.initStr(if (buf.compression_info) |ci| ci.scheme else "none");
+    if (std.mem.eql(u8, attr, "nnz")) return Dynamic.initInt(@intCast(if (buf.compression_info) |ci| ci.nnz else buf.size));
+
+    if (std.mem.eql(u8, attr, "shape")) {
         var shape_list = std.ArrayList(Dynamic).empty;
-        for (0..buf.ndim) |i| {
-            shape_list.append(std.heap.c_allocator, Dynamic.initInt(@intCast(buf.shape[i]))) catch {};
-        }
+        for (0..buf.ndim) |i| shape_list.append(std.heap.c_allocator, Dynamic.initInt(@intCast(buf.shape[i]))) catch {};
         return Dynamic.initList(shape_list);
-    } else if (std.mem.eql(u8, attr, "dtype")) {
-        return Dynamic.initStr(buf.dtype.name());
-    } else if (std.mem.eql(u8, attr, "itemsize")) {
-        return Dynamic.initInt(@intCast(buf.dtype.sizeOf()));
-    } else if (std.mem.eql(u8, attr, "nbytes")) {
-        return Dynamic.initInt(@intCast(buf.size * buf.dtype.sizeOf()));
-    } else if (std.mem.eql(u8, attr, "to_raw_handle") or
-        std.mem.eql(u8, attr, "fill") or
-        std.mem.eql(u8, attr, "to_list") or
-        std.mem.eql(u8, attr, "to_device") or
-        std.mem.eql(u8, attr, "to_host") or
-        std.mem.eql(u8, attr, "copy_from_list") or
+    }
+    if (std.mem.eql(u8, attr, "compress") or std.mem.eql(u8, attr, "decompress") or
+        std.mem.eql(u8, attr, "compact") or std.mem.eql(u8, attr, "uncompact") or std.mem.eql(u8, attr, "spmv") or
+        std.mem.eql(u8, attr, "stats") or std.mem.eql(u8, attr, "get_stats") or
+        std.mem.eql(u8, attr, "to_raw_handle") or std.mem.eql(u8, attr, "fill") or std.mem.eql(u8, attr, "to_list") or
+        std.mem.eql(u8, attr, "to_device") or std.mem.eql(u8, attr, "to_host") or std.mem.eql(u8, attr, "copy_from_list") or
+        std.mem.eql(u8, attr, "commit_page") or std.mem.eql(u8, attr, "decommit_page") or std.mem.eql(u8, attr, "is_page_committed") or
+        std.mem.eql(u8, attr, "compress_idle_pages") or std.mem.eql(u8, attr, "sparse_stats") or std.mem.eql(u8, attr, "defragment") or
         std.mem.eql(u8, attr, "free"))
     {
         buf.last_method = attr;
@@ -350,42 +279,49 @@ pub fn bufferGetAttribute(ptr: *anyopaque, attr: []const u8) Dynamic {
 
 pub fn printBuffer(ptr: *anyopaque) void {
     const buf: *GpuBuffer = @ptrCast(@alignCast(ptr));
-    std.debug.print("<gpu.Buffer size={d} dev_ptr=0x{x}>", .{ buf.size, buf.dev_ptr });
+    std.debug.print("<gpu.Buffer size={d} dtype={s} dev_ptr=0x{x}>", .{ buf.size, buf.dtype.name(), buf.dev_ptr });
 }
 
-fn unpackDim(dyn: Dynamic, out: *[3]usize) void {
-    if (dyn.value == .i64_type) {
-        out[0] = @intCast(@max(1, dyn.value.i64_type));
-    } else if (dyn.value == .list_type or dyn.value == .tuple_type) {
-        const items = if (dyn.value == .list_type) dyn.value.list_type.items.items else dyn.value.tuple_type.items;
-        for (items, 0..) |it, i| {
-            if (i < 3 and it.value == .i64_type) out[i] = @intCast(@max(1, it.value.i64_type));
+fn recalculateStrides(buf: *GpuBuffer) void {
+    if (buf.ndim == 0) return;
+    buf.strides[buf.ndim - 1] = 1;
+    var s_idx: usize = buf.ndim - 1;
+    while (s_idx > 0) {
+        s_idx -= 1;
+        buf.strides[s_idx] = buf.strides[s_idx + 1] * buf.shape[s_idx + 1];
+    }
+}
+
+pub fn setBufferAttribute(buf: *GpuBuffer, attr: []const u8, val: Dynamic) bool {
+    if (std.mem.eql(u8, attr, "ndim")) {
+        if (val.value == .i64_type) {
+            buf.ndim = @intCast(@max(1, @min(4, val.value.i64_type)));
+            return true;
+        }
+    } else if (std.mem.eql(u8, attr, "shape")) {
+        if (val.value == .list_type) {
+            const items = val.value.list_type.items.items;
+            buf.ndim = @min(4, items.len);
+            for (items, 0..) |item, i| {
+                if (i >= 4) break;
+                if (item.value == .i64_type) {
+                    buf.shape[i] = @intCast(@max(1, item.value.i64_type));
+                }
+            }
+            recalculateStrides(buf);
+            return true;
+        } else if (val.value == .tuple_type) {
+            const items = val.value.tuple_type.items;
+            buf.ndim = @min(4, items.len);
+            for (items, 0..) |item, i| {
+                if (i >= 4) break;
+                if (item.value == .i64_type) {
+                    buf.shape[i] = @intCast(@max(1, item.value.i64_type));
+                }
+            }
+            recalculateStrides(buf);
+            return true;
         }
     }
-}
-
-pub fn createBoundKernel(kernel_fn: Dynamic, index: Dynamic) anyerror!Dynamic {
-    var g = [3]usize{ 1, 1, 1 };
-    var b = [3]usize{ 1, 1, 1 };
-
-    if (index.value == .list_type or index.value == .tuple_type) {
-        const items = if (index.value == .list_type) index.value.list_type.items.items else index.value.tuple_type.items;
-        if (items.len >= 1) unpackDim(items[0], &g);
-        if (items.len >= 2) unpackDim(items[1], &b);
-    } else if (index.value == .i64_type) {
-        g[0] = @intCast(@max(1, index.value.i64_type));
-    }
-
-    const bound = try std.heap.c_allocator.create(BoundKernel);
-    bound.* = BoundKernel{
-        .kernel_fn = kernel_fn,
-        .grid_x = g[0],
-        .grid_y = g[1],
-        .grid_z = g[2],
-        .block_x = b[0],
-        .block_y = b[1],
-        .block_z = b[2],
-    };
-
-    return Dynamic{ .value = .{ .gpu_kernel_type = @ptrCast(bound) } };
+    return false;
 }

@@ -165,9 +165,11 @@ pub fn alloc(size: Dynamic) anyerror!Dynamic {
         return error.TypeError;
     }
 
+    const byte_len = s * @sizeOf(f32);
+    _ = @import("gpu_budget.zig").autoCompactIfNeeded(byte_len);
+
     if (driver.active_backend == .cuda and driver.cuda_api != null and driver.cuda_api.?.cuMemAllocManaged != null) {
         var cu_ptr: driver.CUdeviceptr = 0;
-        const byte_len = s * @sizeOf(f32);
         // CU_MEM_ATTACH_GLOBAL = 1
         if (driver.cuda_api.?.cuMemAllocManaged.?(&cu_ptr, byte_len, 1) == driver.CUDA_SUCCESS) {
             const host_slice: [*]f32 = @ptrFromInt(cu_ptr);
@@ -182,6 +184,7 @@ pub fn alloc(size: Dynamic) anyerror!Dynamic {
                 .is_device_allocated = true,
                 .is_managed = true,
             };
+            @import("gpu_budget.zig").registerBuffer(buf);
             return buf.asDynamic();
         }
     }
@@ -189,17 +192,37 @@ pub fn alloc(size: Dynamic) anyerror!Dynamic {
     const buf = try GpuBuffer.init(std.heap.c_allocator, s);
     if (driver.active_backend == .cuda and driver.cuda_api != null) {
         var cu_ptr: driver.CUdeviceptr = 0;
-        const byte_len = s * @sizeOf(f32);
         if (driver.cuda_api.?.cuMemAlloc(&cu_ptr, byte_len) == driver.CUDA_SUCCESS) {
             buf.dev_ptr = cu_ptr;
             buf.is_device_allocated = true;
             _ = driver.cuda_api.?.cuMemcpyHtoD(cu_ptr, buf.data.ptr, byte_len);
         }
     }
+    @import("gpu_budget.zig").registerBuffer(buf);
     return buf.asDynamic();
 }
 
 pub fn Buffer(size: Dynamic) anyerror!Dynamic {
+    return alloc(size);
+}
+
+/// Alias: gpu.zeros(n) -> alloc n f32 elements, all zero-initialised
+pub fn zeros(size: Dynamic) anyerror!Dynamic {
+    return alloc(size);
+}
+
+/// Alias: gpu.ones(n) -> alloc n f32 elements, all set to 1.0
+pub fn ones(size: Dynamic) anyerror!Dynamic {
+    var s: usize = 0;
+    if (size.value == .i64_type) s = @intCast(@max(0, size.value.i64_type)) else return error.TypeError;
+    const buf = try GpuBuffer.init(std.heap.c_allocator, s);
+    @memset(buf.data, 1.0);
+    @import("gpu_budget.zig").registerBuffer(buf);
+    return buf.asDynamic();
+}
+
+/// Alias: gpu.empty(n) -> alloc n f32 elements (uninitialised)
+pub fn empty(size: Dynamic) anyerror!Dynamic {
     return alloc(size);
 }
 
@@ -216,7 +239,9 @@ pub fn allocDtype(size: Dynamic, dtype_dyn: Dynamic) anyerror!Dynamic {
     if (dtype_dyn.value == .str_type) {
         dt = gpu_types.GpuDtype.fromString(dtype_dyn.value.str_type);
     }
+    _ = @import("gpu_budget.zig").autoCompactIfNeeded(s * dt.sizeOf());
     const buf = try GpuBuffer.initWithDtype(std.heap.c_allocator, s, dt);
+    @import("gpu_budget.zig").registerBuffer(buf);
     return buf.asDynamic();
 }
 
@@ -297,7 +322,11 @@ fn render_earth_slice(allocator_mem: std.mem.Allocator, args: []const Dynamic, k
 
 pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (extra_attrs.lookup(attr)) |dyn| return dyn;
+    // Buffer Allocation Aliases
     if (std.mem.eql(u8, attr, "alloc") or std.mem.eql(u8, attr, "Buffer")) return Dynamic{ .value = .{ .func_type_slice = alloc_slice } };
+    if (std.mem.eql(u8, attr, "zeros")) return @import("datatype/dynamic.zig").toDynamicFunc(zeros);
+    if (std.mem.eql(u8, attr, "ones")) return @import("datatype/dynamic.zig").toDynamicFunc(ones);
+    if (std.mem.eql(u8, attr, "empty")) return @import("datatype/dynamic.zig").toDynamicFunc(empty);
     if (std.mem.eql(u8, attr, "to_device")) return @import("datatype/dynamic.zig").toDynamicFunc(to_device);
     if (std.mem.eql(u8, attr, "to_host")) return @import("datatype/dynamic.zig").toDynamicFunc(to_host);
     if (std.mem.eql(u8, attr, "sync")) return @import("datatype/dynamic.zig").toDynamicFunc(sync);
@@ -347,7 +376,11 @@ pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     return error.AttributeError;
 }
 
-pub fn _is_abi() void {}
 pub fn __sundapy_module_init() !void {
     driver.initGpuDriver(dispatch.launchInternal);
+    @import("gpu_sparse_vm.zig").initSparseVmBridge();
+    gpu_types.buffer_compress_hook = @import("gpu_compress.zig").bufferCompressHook;
+    gpu_types.buffer_decompress_hook = @import("gpu_compress.zig").bufferDecompressHook;
+    gpu_types.budget_register_fn = @import("gpu_budget.zig").registerBuffer;
+    gpu_types.budget_unregister_fn = @import("gpu_budget.zig").unregisterBuffer;
 }

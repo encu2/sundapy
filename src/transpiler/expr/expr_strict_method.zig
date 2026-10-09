@@ -242,9 +242,11 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
                 }
                 try self.emit(") catch {{}};\n", .{});
             }
-            try self.emit("        break :blk_{d} _target_{d}.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid, lid, m.method});
+            try self.emit("        const _fn_{d} = if (@typeInfo(@TypeOf(_target_{d}.builtin_getattr(\"{s}\"))) == .error_union) try _target_{d}.builtin_getattr(\"{s}\") else _target_{d}.builtin_getattr(\"{s}\");\n", .{lid, lid, m.method, lid, m.method, lid, m.method});
+            try self.emit("        break :blk_{d} _fn_{d}.builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid, lid});
         } else {
-            try self.emit("        break :blk_{d} _target_{d}.builtin_getattr(\"{s}\").builtin_call(alloc, &_args_arr, null);\n", .{lid, lid, m.method});
+            try self.emit("        const _fn_{d} = if (@typeInfo(@TypeOf(_target_{d}.builtin_getattr(\"{s}\"))) == .error_union) try _target_{d}.builtin_getattr(\"{s}\") else _target_{d}.builtin_getattr(\"{s}\");\n", .{lid, lid, m.method, lid, m.method, lid, m.method});
+            try self.emit("        break :blk_{d} _fn_{d}.builtin_call(alloc, &_args_arr, null);\n", .{lid, lid});
         }
         try self.emit("    }} else {{\n", .{});
         try self.emit("        break :blk_{d} Dynamic{{ .value = .none_type }};\n", .{lid});

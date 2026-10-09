@@ -28,6 +28,18 @@ fn futexWake(val_ptr: *const std.atomic.Value(u32)) void {
     _ = syscall(SYS_futex, @as(c_long, @intCast(@intFromPtr(val_ptr))), FUTEX_WAKE_PRIVATE, @as(c_long, 1), @as(c_long, 0), @as(c_long, 0), @as(c_long, 0));
 }
 
+const ZeroTask = struct {
+    ptr: [*]u8,
+    len: usize,
+};
+
+fn zeroWorkerTask(arg: ?*anyopaque) void {
+    if (arg) |a| {
+        const t: *ZeroTask = @ptrCast(@alignCast(a));
+        @memset(t.ptr[0..t.len], 0);
+    }
+}
+
 pub const WorkerPool = struct {
     slots: [MAX_WORKERS]WorkerSlot = [_]WorkerSlot{.{}} ** MAX_WORKERS,
     workers: [MAX_WORKERS]?std.Thread = [_]?std.Thread{null} ** MAX_WORKERS,
@@ -123,6 +135,29 @@ pub const WorkerPool = struct {
         }
         self.is_init = false;
     }
+
+    pub fn parallelZero(self: *WorkerPool, ptr: [*]u8, byte_count: usize) void {
+        if (byte_count == 0) return;
+        if (byte_count < 64 * 1024 or self.num_workers <= 1) {
+            @memset(ptr[0..byte_count], 0);
+            return;
+        }
+
+        const n = self.num_workers;
+        const chunk_size = (byte_count / n) & ~@as(usize, 63); // 64-byte cache-line aligned chunks
+        var tasks: [MAX_WORKERS]ZeroTask = undefined;
+        var funcs: [MAX_WORKERS]TaskFn = undefined;
+        var args: [MAX_WORKERS]?*anyopaque = undefined;
+
+        for (0..n) |i| {
+            const offset = i * chunk_size;
+            const len = if (i == n - 1) byte_count - offset else chunk_size;
+            tasks[i] = .{ .ptr = ptr + offset, .len = len };
+            funcs[i] = zeroWorkerTask;
+            args[i] = &tasks[i];
+        }
+        self.dispatchBatch(n, &funcs, &args);
+    }
 };
 
 var global_pool: WorkerPool = .{};
@@ -135,3 +170,23 @@ pub fn getGlobalPool() *WorkerPool {
     }
     return &global_pool;
 }
+
+pub fn pool_stats() anyerror!@import("datatype/dynamic.zig").Dynamic {
+    const pool = getGlobalPool();
+    var dict = @import("datatype/dynamic.zig").Dynamic.initDict(std.heap.c_allocator);
+    try dict.value.dict_type.put(@import("datatype/dynamic.zig").Dynamic.initStr("num_workers"), @import("datatype/dynamic.zig").Dynamic.initInt(@intCast(pool.num_workers)));
+    try dict.value.dict_type.put(@import("datatype/dynamic.zig").Dynamic.initStr("cache_line_aligned"), @import("datatype/dynamic.zig").Dynamic.initBool(true));
+    try dict.value.dict_type.put(@import("datatype/dynamic.zig").Dynamic.initStr("is_init"), @import("datatype/dynamic.zig").Dynamic.initBool(pool.is_init));
+    return dict;
+}
+
+pub fn pool_parallel_zero(buf_dyn: @import("datatype/dynamic.zig").Dynamic) anyerror!@import("datatype/dynamic.zig").Dynamic {
+    if (buf_dyn.value != .gpu_buffer_type) return error.TypeError;
+    const gpu_types = @import("datatype/gpu_types.zig");
+    const buf: *gpu_types.GpuBuffer = @ptrCast(@alignCast(buf_dyn.value.gpu_buffer_type));
+    const pool = getGlobalPool();
+    const raw_ptr: [*]u8 = @ptrCast(buf.data.ptr);
+    pool.parallelZero(raw_ptr, buf.size * buf.dtype.sizeOf());
+    return @import("datatype/dynamic.zig").Dynamic.initNone();
+}
+

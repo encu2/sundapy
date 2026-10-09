@@ -9,11 +9,30 @@ from typing import Any, Callable, List, Optional, Tuple, Union
 class GPUBuffer:
     """
     Handle representasi buffer memori linier di VRAM perangkat keras GPU.
+    Mendukung kompresi in-place lossy dan lossless berkecepatan tinggi.
     """
     size: int
     dev_ptr: int
     is_device: bool
     is_managed: bool
+    is_compressed: bool
+    compression_ratio: float
+    savings_pct: float
+    compressed_bytes: int
+    original_bytes: int
+    scheme: str
+
+    def compress(self, codec: str = "fpc") -> "GPUBuffer":
+        """Mengompresi buffer in-place di VRAM/RAM dengan codec tertentu."""
+        ...
+
+    def decompress(self) -> "GPUBuffer":
+        """Mendekompresi buffer in-place kembali ke float uncompressed."""
+        ...
+
+    def stats(self) -> dict:
+        """Mengembalikan statistik memori dan rasio kompresi buffer."""
+        ...
 
 class GPUField:
     """
@@ -133,3 +152,54 @@ def render_4d(buffer: Any, width: int, height: int, time: float) -> None:
     Me-render visualisasi 4D hypersphere raymarching langsung pada perangkat keras GPU.
     """
     ...
+
+def compress(buf: GPUBuffer, codec: str = "fpc") -> dict:
+    """
+    ### Mengompresi Buffer GPU VRAM
+    Mengompresi data buffer GPU menggunakan codec terpilih (fpc, quant8, quant4, fp16, fp8, fp4, lz_fast, rle, bpc, delta_rle, sparse).
+    Mengembalikan dictionary CompressedBuffer.
+    """
+    ...
+
+def decompress(comp: dict, out_buf: Optional[GPUBuffer] = None) -> GPUBuffer:
+    """
+    ### Mendekompresi Buffer GPU
+    Mendekompresi objek buffer yang terkompresi kembali ke GPUBuffer.
+    """
+    ...
+
+def compress_ratio(buf: GPUBuffer, codec: str = "fpc") -> float:
+    """Mengukur rasio kompresi data buffer GPU tanpa menyimpan hasil kompresi."""
+    ...
+
+def get_codecs() -> List[str]:
+    """Mengembalikan daftar seluruh codec kompresi GPU yang didukung."""
+    ...
+
+def set_memory_budget(bytes: int) -> None:
+    """Menetapkan batas anggaran VRAM/RAM (memory budget) dalam byte (0 = unlimited)."""
+    ...
+
+def get_memory_budget() -> dict:
+    """Mengambil status pemakaian memory budget saat ini."""
+    ...
+
+def get_memory_stats() -> dict:
+    """Mengambil rincian statistik memori subsistem GPU (alokasi, penghematan, rasio)."""
+    ...
+
+def compact_memory() -> int:
+    """Memicu pemadatan dan kompresi aktif seluruh buffer pasif untuk menghemat VRAM."""
+    ...
+
+def memory_report() -> dict:
+    """Mencetak dan mengembalikan laporan ringkasan penggunaan memori GPU tingkat produksi."""
+    ...
+
+def benchmark_compression(size_or_buf: Union[int, GPUBuffer] = 65536) -> List[dict]:
+    """
+    ### Menjalankan Benchmark Komparatif Seluruh Codec Kompresi VRAM
+    Menghasilkan tabel performa lengkap (Rasio, Penghematan %, Kecepatan Kompresi & Dekompresi dalam GB/s, Max Error).
+    """
+    ...
+

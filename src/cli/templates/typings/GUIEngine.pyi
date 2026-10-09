@@ -62,3 +62,30 @@ def blit(src_buffer: Any, dst_buffer: Any, src_w: int, src_h: int, dst_w: int, d
 def rgb_to_bgr(color_packed: int) -> int:
     """Konversi format byte order warna RGB ke BGR 32-bit."""
     ...
+
+def compress_surface(surface: Any, codec: str = "rle") -> dict:
+    """
+    ### Mengompresi Permukaan Grafis 2D
+    Mengompresi buffer permukaan canvas menggunakan codec RLE atau FPC untuk menghemat VRAM.
+    """
+    ...
+
+def decompress_surface(comp: dict, out_surface: Any = None) -> Any:
+    """
+    ### Mendekompresi Permukaan Grafis
+    Mendekompresi permukaan terkompresi kembali ke buffer surface siap gambar/blit.
+    """
+    ...
+
+def compress_ratio(surface: Any, codec: str = "rle") -> float:
+    """Mengukur rasio kompresi memori permukaan 2D."""
+    ...
+
+def get_surface_stats(surface: Any) -> dict:
+    """Mengambil rincian statistik memori permukaan kanvas grafis."""
+    ...
+
+def benchmark_surface(surface: Any) -> list:
+    """Menjalankan benchmark kompresi terhadap permukaan aktif."""
+    ...
+

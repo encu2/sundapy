@@ -8,10 +8,32 @@ const shared = @import("gpu_shared.zig");
 const vulkan = @import("gpu_vulkan.zig");
 const opencl = @import("gpu_opencl.zig");
 const driver = @import("gpu_driver.zig");
+const slab = @import("gpu_slab.zig");
+const sparse_vm = @import("gpu_sparse_vm.zig");
+const arena = @import("gpu_arena.zig");
+const gateway = @import("gpu_gateway.zig");
+const pool = @import("gpu_pool.zig");
 
 // ============================================================================
 // Extra GPU Subsystem Dynamic Dispatch Table
 // ============================================================================
+
+fn sparse_buffer_slice(_: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    if (args.len == 0) return error.TypeError;
+    const size_dyn = args[0];
+    var page_size_dyn: ?Dynamic = if (args.len > 1) args[1] else null;
+    if (page_size_dyn == null and kwargs != null and kwargs.?.value == .dict_type) {
+        if (kwargs.?.value.dict_type.get(Dynamic.initStr("page_size"))) |ps| {
+            page_size_dyn = ps;
+        }
+    }
+    return sparse_vm.sparse_buffer(size_dyn, page_size_dyn);
+}
+
+fn sparse_compress_idle_slice(_: std.mem.Allocator, args: []const Dynamic, _: ?Dynamic) anyerror!Dynamic {
+    if (args.len == 0) return error.TypeError;
+    return sparse_vm.sparse_compress_idle(args[0]);
+}
 
 pub fn lookup(attr: []const u8) ?Dynamic {
     // Hardware Lock-Free Atomics
@@ -65,6 +87,34 @@ pub fn lookup(attr: []const u8) ?Dynamic {
     if (std.mem.eql(u8, attr, "get_opencl_platform_name")) return dynamic.toDynamicFunc(opencl.get_opencl_platform_name);
 
     if (std.mem.eql(u8, attr, "alloc_dtype") or std.mem.eql(u8, attr, "alloc_typed")) return dynamic.toDynamicFunc(@import("gpu.zig").alloc_dtype);
+
+    // VRAM Slab & Buddy Sub-Allocator
+    if (std.mem.eql(u8, attr, "slab_alloc")) return dynamic.toDynamicFunc(slab.slab_alloc);
+    if (std.mem.eql(u8, attr, "slab_free")) return dynamic.toDynamicFunc(slab.slab_free);
+    if (std.mem.eql(u8, attr, "slab_stats")) return dynamic.toDynamicFunc(slab.slab_stats);
+    if (std.mem.eql(u8, attr, "defragment")) return dynamic.toDynamicFunc(slab.defragment);
+
+    // Sparse Virtual Memory & Page Table Paging
+    if (std.mem.eql(u8, attr, "sparse_buffer") or std.mem.eql(u8, attr, "sparse_alloc")) return Dynamic{ .value = .{ .func_type_slice = sparse_buffer_slice } };
+    if (std.mem.eql(u8, attr, "sparse_stats")) return dynamic.toDynamicFunc(sparse_vm.sparse_stats);
+    if (std.mem.eql(u8, attr, "sparse_commit")) return dynamic.toDynamicFunc(sparse_vm.sparse_commit);
+    if (std.mem.eql(u8, attr, "sparse_decommit")) return dynamic.toDynamicFunc(sparse_vm.sparse_decommit);
+    if (std.mem.eql(u8, attr, "sparse_compress_idle")) return Dynamic{ .value = .{ .func_type_slice = sparse_compress_idle_slice } };
+
+    // Memory Arena Sub-Allocator Enhancements
+    if (std.mem.eql(u8, attr, "arena_stats")) return dynamic.toDynamicFunc(arena.arena_stats);
+    if (std.mem.eql(u8, attr, "arena_defragment")) return dynamic.toDynamicFunc(arena.arena_defragment);
+    if (std.mem.eql(u8, attr, "arena_sparse_alloc")) return dynamic.toDynamicFunc(arena.arena_sparse_alloc);
+
+    // Interop Gateway & Sparse Page Mapping
+    if (std.mem.eql(u8, attr, "sparse_page_map")) return dynamic.toDynamicFunc(gateway.sparse_page_map);
+    if (std.mem.eql(u8, attr, "commit_virtual_range")) return dynamic.toDynamicFunc(gateway.commit_virtual_range);
+
+    // High-Throughput Worker Pool
+    if (std.mem.eql(u8, attr, "pool_stats")) return dynamic.toDynamicFunc(pool.pool_stats);
+    if (std.mem.eql(u8, attr, "pool_parallel_zero")) return dynamic.toDynamicFunc(pool.pool_parallel_zero);
+
+    if (@import("gpu_compress.zig").lookup(attr)) |dyn| return dyn;
 
     return null;
 }

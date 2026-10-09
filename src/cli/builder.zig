@@ -49,7 +49,7 @@ pub fn printHelp() void {
 pub fn extractEmbeddedDatatype(allocator: std.mem.Allocator, io: std.Io) void {
     const cwd = std.Io.Dir.cwd();
     const embedded = @import("../embedded_datatype.zig");
-    inline for (embedded.files) |entry| {
+    for (embedded.files) |entry| {
         const rel_path = entry[0];
         const data = entry[1];
         const full_path = std.fmt.allocPrint(allocator, ".cache/src/datatype/{s}", .{rel_path}) catch unreachable;
@@ -62,7 +62,7 @@ pub fn extractEmbeddedDatatype(allocator: std.mem.Allocator, io: std.Io) void {
             std.debug.print("Failed to write embedded file {s}: {any}\n", .{ full_path, write_err });
         };
 
-        if (comptime std.mem.startsWith(u8, rel_path, "sundapy_std/")) {
+        if (std.mem.startsWith(u8, rel_path, "sundapy_std/")) {
             const std_rel = rel_path["sundapy_std/".len..];
             if (std.fmt.allocPrint(allocator, ".cache/src/{s}", .{std_rel})) |std_dest| {
                 defer allocator.free(std_dest);

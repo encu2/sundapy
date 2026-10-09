@@ -62,6 +62,9 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
 pub fn setAbiAttribute(self: Dynamic, attr: []const u8, val: Dynamic) bool {
     if (self.value == .ffi_obj_type) {
         return @import("ffi_dispatch.zig").ffiSetAttribute(self.value.ffi_obj_type, attr, val);
+    } else if (self.value == .gpu_buffer_type) {
+        const buf: *@import("gpu_types.zig").GpuBuffer = @ptrCast(@alignCast(self.value.gpu_buffer_type));
+        return @import("gpu_types.zig").setBufferAttribute(buf, attr, val);
     }
     return false;
 }

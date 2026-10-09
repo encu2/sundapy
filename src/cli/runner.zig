@@ -118,6 +118,7 @@ pub fn main(ctx: std.process.Init) !void {
 
     var cache_mgr = @import("../core/cache.zig").CacheManager.init(allocator);
     try cache_mgr.ensureCacheDirs(allocator, io);
+    builder.extractEmbeddedDatatype(allocator, io);
 
     const cwd = std.Io.Dir.cwd();
     const script_content = cwd.readFileAlloc(io, final_script, allocator, @enumFromInt(10 * 1024 * 1024)) catch |err| {

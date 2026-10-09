@@ -139,7 +139,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
         defer allocator.free(stdlib_rel_name);
         
         var embedded_stdlib_data: ?[]const u8 = null;
-        inline for (embedded.files) |entry| {
+        for (embedded.files) |entry| {
             if (std.mem.eql(u8, entry[0], stdlib_rel_name)) {
                 embedded_stdlib_data = entry[1];
             }
@@ -154,8 +154,8 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             }
             cwd.writeFile(io, .{ .sub_path = dest_path, .data = stdlib_code }) catch {};
             
-            inline for (embedded.files) |entry| {
-                if (comptime std.mem.startsWith(u8, entry[0], "sundapy_std/")) {
+            for (embedded.files) |entry| {
+                if (std.mem.startsWith(u8, entry[0], "sundapy_std/")) {
                     const std_rel = entry[0]["sundapy_std/".len..];
                     if (std.fmt.allocPrint(allocator, ".cache/src/{s}", .{std_rel})) |std_dest| {
                         defer allocator.free(std_dest);

@@ -44,6 +44,69 @@ pub const is_key_pressed = input.is_key_pressed;
 pub const get_pressed_keys = input.get_pressed_keys;
 pub const get_input = input.get_input;
 
+pub const screen_compress = @import("screen_compress.zig");
+pub const frame_compress = @import("screen_frame_compress.zig");
+
+// Re-export compression APIs
+pub fn get_compression_ratio() anyerror!Dynamic {
+    return Dynamic.initFloat(@floatCast(screen_compress.getCompressionRatio()));
+}
+
+pub fn get_compression_stats() anyerror!Dynamic {
+    return frame_compress.getCompressionStats(std.heap.c_allocator);
+}
+
+pub fn reset_compression_stats() anyerror!Dynamic {
+    screen_compress.resetStats();
+    return Dynamic.initNone();
+}
+
+pub const dirty = @import("screen_dirty.zig");
+pub const pool = @import("screen_buffer_pool.zig");
+
+pub fn get_dirty_percentage() anyerror!Dynamic {
+    return Dynamic.initFloat(dirty.getDirtyPercentage());
+}
+
+pub fn get_buffer_mode() anyerror!Dynamic {
+    return Dynamic.initStr(pool.getBufferModeName());
+}
+
+pub fn get_saved_bandwidth_mb() anyerror!Dynamic {
+    return Dynamic.initFloat(screen_compress.getSavedBandwidthMb());
+}
+
+pub fn force_redraw() anyerror!Dynamic {
+    dirty.markAllDirty();
+    return Dynamic.initNone();
+}
+
+pub fn is_running_fn() anyerror!Dynamic {
+    return Dynamic.initBool(is_running);
+}
+
+pub fn compress_framebuffer(buf_dyn: Dynamic, w_dyn: Dynamic, h_dyn: Dynamic) anyerror!Dynamic {
+    if (buf_dyn.value != .gpu_buffer_type) return error.TypeError;
+    const buf: *GpuBuffer = @ptrCast(@alignCast(buf_dyn.value.gpu_buffer_type));
+    var w: usize = screen_width;
+    var h: usize = screen_height;
+    if (w_dyn.value == .i64_type) w = @intCast(@max(1, w_dyn.value.i64_type));
+    if (h_dyn.value == .i64_type) h = @intCast(@max(1, h_dyn.value.i64_type));
+    return frame_compress.compressFramebuffer(std.heap.c_allocator, buf, w, h);
+}
+
+pub fn compress_framebuffer_slice(alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
+    _ = kwargs;
+    if (args.len == 0) return error.TypeError;
+    if (args[0].value != .gpu_buffer_type) return error.TypeError;
+    const buf: *GpuBuffer = @ptrCast(@alignCast(args[0].value.gpu_buffer_type));
+    var w: usize = screen_width;
+    var h: usize = screen_height;
+    if (args.len > 1 and args[1].value == .i64_type) w = @intCast(@max(1, args[1].value.i64_type));
+    if (args.len > 2 and args[2].value == .i64_type) h = @intCast(@max(1, args[2].value.i64_type));
+    return frame_compress.compressFramebuffer(alloc, buf, w, h);
+}
+
 // ============================================================================
 // Module Lifecycle & Buffer Rendering
 // ============================================================================
@@ -187,5 +250,14 @@ pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "get_memory_usage")) return @import("datatype/dynamic.zig").toDynamicFunc(get_memory_usage);
     if (std.mem.eql(u8, attr, "get_frame_count")) return @import("datatype/dynamic.zig").toDynamicFunc(get_frame_count);
     if (std.mem.eql(u8, attr, "get_benchmark_summary")) return @import("datatype/dynamic.zig").toDynamicFunc(get_benchmark_summary);
+    if (std.mem.eql(u8, attr, "is_running")) return Dynamic.initBool(is_running);
+    if (std.mem.eql(u8, attr, "get_compression_ratio")) return @import("datatype/dynamic.zig").toDynamicFunc(get_compression_ratio);
+    if (std.mem.eql(u8, attr, "get_compression_stats")) return @import("datatype/dynamic.zig").toDynamicFunc(get_compression_stats);
+    if (std.mem.eql(u8, attr, "reset_compression_stats")) return @import("datatype/dynamic.zig").toDynamicFunc(reset_compression_stats);
+    if (std.mem.eql(u8, attr, "get_dirty_percentage")) return @import("datatype/dynamic.zig").toDynamicFunc(get_dirty_percentage);
+    if (std.mem.eql(u8, attr, "get_buffer_mode")) return @import("datatype/dynamic.zig").toDynamicFunc(get_buffer_mode);
+    if (std.mem.eql(u8, attr, "get_saved_bandwidth_mb")) return @import("datatype/dynamic.zig").toDynamicFunc(get_saved_bandwidth_mb);
+    if (std.mem.eql(u8, attr, "force_redraw")) return @import("datatype/dynamic.zig").toDynamicFunc(force_redraw);
+    if (std.mem.eql(u8, attr, "compress_framebuffer") or std.mem.eql(u8, attr, "compress")) return Dynamic{ .value = .{ .func_type_slice = compress_framebuffer_slice } };
     return error.AttributeError;
 }

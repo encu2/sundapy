@@ -291,7 +291,8 @@ pub fn initX11Window(width: usize, height: usize, title: []const u8) bool {
     t.x11_shm_active = false;
 
     if (t.x11_shm_supported) {
-        const shmid = t.shmget(t.IPC_PRIVATE, img_bytes, t.IPC_CREAT | 0o777);
+        const shm_alloc_bytes = img_bytes * 2;
+        const shmid = t.shmget(t.IPC_PRIVATE, shm_alloc_bytes, t.IPC_CREAT | 0o777);
         if (shmid >= 0) {
             const shmaddr = t.shmat(shmid, null, 0);
             if (@intFromPtr(shmaddr) != @as(usize, @bitCast(@as(isize, -1)))) {
@@ -337,6 +338,14 @@ pub fn initX11Window(width: usize, height: usize, title: []const u8) bool {
             return false;
         }
         t.x11_img_buf = t.x11_heap_buf;
+    }
+
+    const pool = @import("screen_buffer_pool.zig");
+    const dirty = @import("screen_dirty.zig");
+    dirty.initGrid(t.x11_win_w, t.x11_win_h);
+    _ = pool.initPool(std.heap.c_allocator, t.x11_win_w, t.x11_win_h, t.x11_shm_active, if (t.x11_shm_addr) |a| @ptrCast(a) else null) catch {};
+    if (pool.isInitialized()) {
+        t.x11_img_buf = pool.getBackBuffer();
     }
 
     t.x11_fd = fd;
