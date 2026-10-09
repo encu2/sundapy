@@ -5,8 +5,9 @@ const Dynamic = dynamic.Dynamic;
 pub const sym = @import("python_abi/symbols.zig");
 pub const conv = @import("python_abi/conv.zig");
 
-pub const PythonAbi = struct {
-    pub const PikaPython = PythonAbi;
+pub const sundapyBridge = struct {
+    pub const PythonAbi = sundapyBridge;
+    pub const PikaPython = sundapyBridge;
     pub fn init() !void {
         if (sym.lib == null) {
             try sym.loadSymbols();

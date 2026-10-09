@@ -277,14 +277,14 @@ fn bridgeViaPythonAbi(allocator: std.mem.Allocator, io: std.Io, mod: []const u8,
         \\const std = @import("std");
         \\const dynamic = @import("{s}datatype/dynamic.zig");
         \\const Dynamic = dynamic.Dynamic;
-        \\const PythonAbi = @import("{s}datatype/python_abi.zig").PythonAbi;
+        \\const sundapyBridge = @import("{s}datatype/python_abi.zig").sundapyBridge;
         \\
         \\pub const _is_abi = true;
         \\pub var _module: Dynamic = undefined;
         \\
         \\pub fn __sundapy_module_init() !void {{
-        \\    try PythonAbi.init();
-        \\    _module = try PythonAbi.importModule("{s}");
+        \\    try sundapyBridge.init();
+        \\    _module = try sundapyBridge.importModule("{s}");
         \\}}
         \\
         \\pub fn builtin_getattr(attr: []const u8) Dynamic {{

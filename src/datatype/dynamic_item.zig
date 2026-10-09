@@ -7,7 +7,7 @@ pub fn len(self: Dynamic) usize {
         .range_type => |r| if (r.step > 0) @intCast(@max(0, @divTrunc(r.stop - r.start + r.step - 1, r.step))) else @intCast(@max(0, @divTrunc(r.start - r.stop - r.step - 1, -r.step))),
         .list_type => |l| l.items.items.len,
         .tuple_type => |t| t.items.len,
-        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PythonAbi.getLength(obj) else 0,
+        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").sundapyBridge.getLength(obj) else 0,
         .gpu_buffer_type => |g| @import("gpu_types.zig").bufferLen(g),
         else => 0,
     };
@@ -19,7 +19,7 @@ pub fn getItem(self: Dynamic, idx: usize) Dynamic {
         .range_type => |r| .{ .value = .{ .i64_type = r.start + @as(i64, @intCast(idx)) * r.step } },
         .list_type => |l| l.items.items[idx],
         .tuple_type => |t| t.items[idx],
-        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PythonAbi.getItem(obj, idx) else .{ .value = .{ .none_type = {} } },
+        .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").sundapyBridge.getItem(obj, idx) else .{ .value = .{ .none_type = {} } },
         .gpu_buffer_type => |g| @import("gpu_types.zig").bufferGetItem(g, Dynamic.initInt(@intCast(idx))) catch .{ .value = .{ .none_type = {} } },
         else => .{ .value = .{ .none_type = {} } },
     };
@@ -50,7 +50,7 @@ pub fn getDynamicItem(self: Dynamic, index: Dynamic) !Dynamic {
         if (self.value.py_obj_type) |obj| {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
-            return @import("python_abi.zig").PythonAbi.getDynamicItem(obj, arena.allocator(), index) catch return error.KeyError;
+            return @import("python_abi.zig").sundapyBridge.getDynamicItem(obj, arena.allocator(), index) catch return error.KeyError;
         }
     } else if (self.value == .gpu_buffer_type) {
         return @import("gpu_types.zig").bufferGetItem(self.value.gpu_buffer_type, index);
@@ -82,7 +82,7 @@ pub fn getDynamicSlice(self: Dynamic, start: Dynamic, stop: Dynamic, step: Dynam
         if (self.value.py_obj_type) |obj| {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
-            return @import("python_abi.zig").PythonAbi.getDynamicSlice(obj, arena.allocator(), start, stop, step) catch return error.KeyError;
+            return @import("python_abi.zig").sundapyBridge.getDynamicSlice(obj, arena.allocator(), start, stop, step) catch return error.KeyError;
         }
     }
     // Minimal mock for slice on lists/strings...

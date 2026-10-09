@@ -124,7 +124,7 @@ pub fn fromAny(val: anytype) Dynamic {
 
         frozenset_type: set_type.FrozenSet,
         
-        // PythonAbi / ABI bindings
+        // sundapyBridge / ABI bindings
         py_obj_type: ?*anyopaque,
         task_type: ?*anyopaque,
         gpu_buffer_type: *anyopaque,
@@ -163,7 +163,7 @@ pub fn fromAny(val: anytype) Dynamic {
             .tuple_type => |t| t.items.len > 0,
             .list_type => |l| l.items.items.len > 0,
             .dict_type => |d| d.map.count() > 0,
-            .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").PythonAbi.isTrue(obj) else false,
+            .py_obj_type => |p| if (p) |obj| @import("python_abi.zig").sundapyBridge.isTrue(obj) else false,
             else => true,
         };
     }
