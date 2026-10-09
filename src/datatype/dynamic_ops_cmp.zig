@@ -3,11 +3,11 @@ const Dynamic = @import("dynamic.zig").Dynamic;
 
 pub fn eq(a: Dynamic, b: Dynamic) Dynamic {
     if (a.value == .py_obj_type) {
-        if (a.value.py_obj_type) |p| return Dynamic.initBool(@import("python_abi.zig").PikaPython.compare(p, b, 2));
+        if (a.value.py_obj_type) |p| return Dynamic.initBool(@import("python_abi.zig").PythonAbi.compare(p, b, 2));
         return Dynamic.initBool(false);
     }
     if (b.value == .py_obj_type) {
-        if (b.value.py_obj_type) |p| return Dynamic.initBool(@import("python_abi.zig").PikaPython.compare(p, a, 2));
+        if (b.value.py_obj_type) |p| return Dynamic.initBool(@import("python_abi.zig").PythonAbi.compare(p, a, 2));
         return Dynamic.initBool(false);
     }
     switch (a.value) {
@@ -54,7 +54,7 @@ pub fn eq(a: Dynamic, b: Dynamic) Dynamic {
             }
         },
         .py_obj_type => |obj| {
-            if (obj) |p| return Dynamic.initBool(@import("python_abi.zig").PikaPython.compare(p, b, 2));
+            if (obj) |p| return Dynamic.initBool(@import("python_abi.zig").PythonAbi.compare(p, b, 2));
             return Dynamic.initBool(false);
         },
         .list_type => |av| {

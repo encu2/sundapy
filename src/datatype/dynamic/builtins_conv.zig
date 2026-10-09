@@ -11,7 +11,7 @@ pub fn builtin_int(self: Dynamic) Dynamic {
         },
         .py_obj_type => |p| {
             if (p) |obj| {
-                const s = @import("../python_abi.zig").PikaPython.getString(obj);
+                const s = @import("../python_abi.zig").PythonAbi.getString(obj);
                 const val = std.fmt.parseInt(i64, s, 10) catch 0;
                 return Dynamic.initInt(val);
             }
@@ -30,7 +30,7 @@ pub fn builtin_float(self: Dynamic) Dynamic {
         },
         .py_obj_type => |p| {
             if (p) |obj| {
-                const s = @import("../python_abi.zig").PikaPython.getString(obj);
+                const s = @import("../python_abi.zig").PythonAbi.getString(obj);
                 const val = std.fmt.parseFloat(f64, s) catch 0.0;
                 return Dynamic.initFloat(val);
             }
@@ -57,7 +57,7 @@ pub fn builtin_str(self: Dynamic, alloc: std.mem.Allocator) Dynamic {
         .none_type => return Dynamic.initStr("None"),
         .py_obj_type => |p| {
             if (p) |obj| {
-                const s = @import("../python_abi.zig").PikaPython.getString(obj);
+                const s = @import("../python_abi.zig").PythonAbi.getString(obj);
                 return Dynamic.initStr(s);
             }
             return Dynamic.initStr("None");

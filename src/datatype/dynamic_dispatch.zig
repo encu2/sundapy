@@ -16,8 +16,8 @@ pub fn builtin_getattr(self: Dynamic, attr_name: []const u8) Dynamic {
 pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
     if (self.value == .py_obj_type) {
         if (self.value.py_obj_type) |obj| {
-            const PikaPython = @import("python_abi.zig").PikaPython;
-            return PikaPython.getAttribute(obj, attr) catch Dynamic{ .value = .{ .none_type = {} } };
+            const PythonAbi = @import("python_abi.zig").PythonAbi;
+            return PythonAbi.getAttribute(obj, attr) catch Dynamic{ .value = .{ .none_type = {} } };
         }
     } else if (self.value == .task_type and self.value.task_type != null) {
         const resolved = self.awaitResult();
@@ -69,8 +69,8 @@ pub fn setAbiAttribute(self: Dynamic, attr: []const u8, val: Dynamic) bool {
 pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dynamic) anyerror!Dynamic {
     if (self.value == .py_obj_type) {
         if (self.value.py_obj_type) |obj| {
-            const PikaPython = @import("python_abi.zig").PikaPython;
-            return PikaPython.callObject(obj, alloc, args, kwargs);
+            const PythonAbi = @import("python_abi.zig").PythonAbi;
+            return PythonAbi.callObject(obj, alloc, args, kwargs);
         }
     } else if (self.value == .task_type and self.value.task_type != null) {
         const resolved = self.awaitResult();
@@ -283,7 +283,7 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
         var mut_bound = bound.*;
         return mut_bound.call(alloc, args);
     } else if (self.value == .py_obj_type) {
-        return try @import("python_abi.zig").PikaPython.callObject(self.value.py_obj_type.?, alloc, args, kwargs);
+        return try @import("python_abi.zig").PythonAbi.callObject(self.value.py_obj_type.?, alloc, args, kwargs);
     } else if (self.value == .str_type) {
         const s = self.value.str_type;
         if (std.mem.eql(u8, s, "int")) {

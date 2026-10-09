@@ -3,10 +3,10 @@ const Dynamic = @import("dynamic.zig").Dynamic;
 
 pub fn add(a: Dynamic, b: Dynamic) Dynamic {
     if (a.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMath(a.value.py_obj_type.?, b, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
     }
     if (b.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMathReverse(a, b.value.py_obj_type.?, "+") catch std.debug.panic("Python ABI Math Error for +\n", .{});
     }
 
     switch (a.value) {
@@ -53,10 +53,10 @@ pub fn add(a: Dynamic, b: Dynamic) Dynamic {
 
 pub fn sub(a: Dynamic, b: Dynamic) Dynamic {
     if (a.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMath(a.value.py_obj_type.?, b, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
     }
     if (b.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMathReverse(a, b.value.py_obj_type.?, "-") catch std.debug.panic("Python ABI Math Error for -\n", .{});
     }
 
     switch (a.value) {
@@ -82,10 +82,10 @@ pub fn sub(a: Dynamic, b: Dynamic) Dynamic {
 
 pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
     if (a.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMath(a.value.py_obj_type.?, b, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
     }
     if (b.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMathReverse(a, b.value.py_obj_type.?, "*") catch std.debug.panic("Python ABI Math Error for *\n", .{});
     }
 
     switch (a.value) {
@@ -163,10 +163,10 @@ pub fn mul(a: Dynamic, b: Dynamic) Dynamic {
 
 pub fn div(a: Dynamic, b: Dynamic) Dynamic {
     if (a.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMath(a.value.py_obj_type.?, b, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMath(a.value.py_obj_type.?, b, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
     }
     if (b.value == .py_obj_type) {
-        return @import("python_abi.zig").PikaPython.doMathReverse(a, b.value.py_obj_type.?, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
+        return @import("python_abi.zig").PythonAbi.doMathReverse(a, b.value.py_obj_type.?, "/") catch std.debug.panic("Python ABI Math Error for /\n", .{});
     }
 
     switch (a.value) {
