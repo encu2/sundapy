@@ -119,6 +119,34 @@ pub const PikaPython = struct {
 
         const method_obj = sym.fn_PyObject_GetAttrString(obj, @ptrCast(&attr_c));
         if (method_obj == null) {
+            sym.fn_PyErr_Clear();
+            // If obj is a module/package, attr might be a submodule (e.g. PIL.Image)
+            const mod_name_obj = sym.fn_PyObject_GetAttrString(obj, "__name__");
+            if (mod_name_obj) |m_obj| {
+                defer sym.fn_Py_DecRef(m_obj);
+                var size: isize = 0;
+                const mod_name_ptr = sym.fn_PyUnicode_AsUTF8AndSize(m_obj, &size);
+                if (mod_name_ptr != null and size > 0) {
+                    const mod_name = mod_name_ptr[0..@intCast(size)];
+                    var full_name_buf: [512]u8 = undefined;
+                    if (mod_name.len + 1 + attr.len < 512) {
+                        @memcpy(full_name_buf[0..mod_name.len], mod_name);
+                        full_name_buf[mod_name.len] = '.';
+                        @memcpy(full_name_buf[mod_name.len + 1 .. mod_name.len + 1 + attr.len], attr);
+                        full_name_buf[mod_name.len + 1 + attr.len] = 0;
+                        const sub_py_name = sym.fn_PyUnicode_DecodeFSDefault(@ptrCast(&full_name_buf));
+                        defer sym.fn_Py_DecRef(sub_py_name);
+                        const sub_mod = sym.fn_PyImport_Import(sub_py_name);
+                        if (sub_mod) |sm| {
+                            return Dynamic{ .value = .{ .py_obj_type = evalCoro(sm) } };
+                        } else {
+                            sym.fn_PyErr_Clear();
+                        }
+                    }
+                }
+            } else {
+                sym.fn_PyErr_Clear();
+            }
             return error.AttributeNotFound;
         }
 
