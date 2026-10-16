@@ -223,7 +223,10 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
     }
 
     const wheel_is_free_threaded = std.mem.endsWith(u8, abi_tag, "t");
-    if (wheel_is_free_threaded != env.is_free_threaded) {
+    if (wheel_is_free_threaded and !env.is_free_threaded) {
+        return 0;
+    }
+    if (!wheel_is_free_threaded and env.is_free_threaded and !std.mem.eql(u8, abi_tag, "none")) {
         return 0;
     }
 
@@ -261,6 +264,17 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
             } else {
                 return 0;
             }
+        } else if (std.mem.eql(u8, abi_tag, "none") or containsTag(abi_tag, "none")) {
+            if (std.mem.indexOf(u8, py_tag, "py3") != null or
+                std.mem.indexOf(u8, py_tag, "py2.py3") != null or
+                std.mem.eql(u8, py_tag, env.py_tag) or
+                containsTag(py_tag, env.py_tag) or
+                matchesAbi3PyTag(py_tag, env.py_ver_num % 100))
+            {
+                base_score = if (std.mem.indexOf(u8, plat_tag, "manylinux") != null) 750 else 650;
+            } else {
+                return 0;
+            }
         } else {
             return 0;
         }
@@ -283,4 +297,33 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
     }
 
     return base_score;
+}
+
+test "scoreWheel variants" {
+    const env = TargetEnv{
+        .py_tag = "cp314",
+        .abi_tag = "cp314",
+        .py_ver_num = 314,
+        .is_free_threaded = false,
+        .arch = "x86_64",
+        .os = "linux",
+    };
+
+    const wandb_score = scoreWheel("wandb-0.30.0-py3-none-manylinux_2_28_x86_64.whl", env);
+    try std.testing.expect(wandb_score > 700);
+
+    const req_score = scoreWheel("requests-2.31.0-py3-none-any.whl", env);
+    try std.testing.expect(req_score == 500);
+
+    const np_score = scoreWheel("numpy-2.1.0-cp314-cp314-manylinux_2_17_x86_64.whl", env);
+    try std.testing.expect(np_score > 1000);
+
+    const crypto_score = scoreWheel("cryptography-42.0.0-cp39-abi3-manylinux_2_28_x86_64.whl", env);
+    try std.testing.expect(crypto_score > 800);
+
+    const arm_score = scoreWheel("wandb-0.30.0-py3-none-manylinux_2_28_aarch64.whl", env);
+    try std.testing.expect(arm_score == 0);
+
+    const mac_score = scoreWheel("wandb-0.30.0-py3-none-macosx_11_0_arm64.whl", env);
+    try std.testing.expect(mac_score == 0);
 }
