@@ -24,4 +24,6 @@ pub const TargetEnv = struct {
     is_free_threaded: bool,
     arch: []const u8,
     os: []const u8,
+    environ_map: ?*const std.process.Environ.Map = null,
 };
+

@@ -93,7 +93,10 @@ pub fn main(ctx: std.process.Init) !void {
         try fetch_cmd.appendSlice(allocator, fetch_args.items);
 
         std.debug.print("Fetching packages via sundafetch...\n", .{});
-        const res = try std.process.run(allocator, io, .{ .argv = fetch_cmd.items });
+        const res = try std.process.run(allocator, io, .{
+            .argv = fetch_cmd.items,
+            .environ_map = ctx.environ_map,
+        });
 
         if (res.stdout.len > 0) std.debug.print("{s}", .{res.stdout});
         if (res.stderr.len > 0) std.debug.print("{s}", .{res.stderr});
@@ -180,7 +183,7 @@ pub fn main(ctx: std.process.Init) !void {
             }
 
             if (compiler.global_missing_modules.items.len > 0) {
-                const proceed = missing.handleMissingModules(allocator, io, compiler, &auto_yes);
+                const proceed = missing.handleMissingModules(allocator, io, compiler, &auto_yes, ctx.environ_map);
                 if (!proceed) break;
                 continue;
             }

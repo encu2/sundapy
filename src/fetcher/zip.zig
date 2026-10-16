@@ -105,10 +105,56 @@ pub fn checkExtractedHasSo(allocator: std.mem.Allocator, io: std.Io, base_dir: [
     const norm = if (pkg.len < 128) blk: {
         @memcpy(norm_buf[0..pkg.len], pkg);
         for (norm_buf[0..pkg.len]) |*c| {
-            if (c.* == '-') c.* = '_';
+            if (c.* == '-' or c.* == '.') c.* = '_';
         }
         break :blk norm_buf[0..pkg.len];
     } else pkg;
+
+    const env_mod = @import("env.zig");
+
+    var it = dir.iterate();
+    while (it.next(io) catch null) |entry| {
+        if (entry.kind == .directory) {
+            const is_dist = std.mem.endsWith(u8, entry.name, ".dist-info");
+            const is_egg = std.mem.endsWith(u8, entry.name, ".egg-info");
+            if ((is_dist or is_egg) and env_mod.canonicalMatch(entry.name, norm)) {
+                if (is_dist) {
+                    if (dir.openDir(io, entry.name, .{})) |sub_val| {
+                        var sub = sub_val;
+                        defer sub.close(io);
+                        if (sub.readFileAlloc(io, "RECORD", allocator, @enumFromInt(2 * 1024 * 1024))) |record_content| {
+                            defer allocator.free(record_content);
+                            if (std.mem.indexOf(u8, record_content, ".so") != null or
+                                std.mem.indexOf(u8, record_content, ".pyd") != null)
+                            {
+                                return true;
+                            }
+                        } else |_| {}
+                    } else |_| {}
+                }
+                if (dir.openDir(io, entry.name, .{})) |sub_val| {
+                    var sub = sub_val;
+                    defer sub.close(io);
+                    if (sub.readFileAlloc(io, "top_level.txt", allocator, @enumFromInt(64 * 1024))) |top_level| {
+                        defer allocator.free(top_level);
+                        var lines = std.mem.splitScalar(u8, top_level, '\n');
+                        while (lines.next()) |line| {
+                            const mod_name = std.mem.trim(u8, line, " \t\r\n");
+                            if (mod_name.len == 0) continue;
+                            var s_buf: [256]u8 = undefined;
+                            const sp = std.fmt.bufPrint(&s_buf, "{s}.so", .{mod_name}) catch continue;
+                            if (dir.access(io, sp, .{})) |_| return true else |_| {}
+                            if (dir.openDir(io, mod_name, .{ .iterate = true })) |m_sub| {
+                                var ms = m_sub;
+                                defer ms.close(io);
+                                if (scanDirForSo(allocator, io, ms)) return true;
+                            } else |_| {}
+                        }
+                    } else |_| {}
+                } else |_| {}
+            }
+        }
+    }
 
     var check_buf: [256]u8 = undefined;
     const so_path = std.fmt.bufPrint(&check_buf, "{s}.so", .{norm}) catch return false;

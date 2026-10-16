@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const env_mod = @import("env.zig");
 const zip_mod = @import("zip.zig");
+const sdist_mod = @import("sdist.zig");
 const TargetEnv = types.TargetEnv;
 const PypiResponse = types.PypiResponse;
 
@@ -76,60 +77,65 @@ pub fn fetchAndInstallPackage(
         }
     }
 
-    const selected_url = best_url orelse {
-        std.debug.print("No compatible wheel found for {s} on {s}/{s} ({s})\n", .{
-            pkg, env.os, env.arch, env.py_tag,
-        });
-        return error.NoCompatibleWheelFound;
-    };
-    const selected_filename = best_filename.?;
-
-    std.debug.print("  [+] Selected wheel: {s} (score: {})\n", .{ selected_filename, best_score });
-    std.debug.print("  [+] Downloading from: {s}\n", .{selected_url});
-
-    var dl_req = try client.request(.GET, try std.Uri.parse(selected_url), .{
-        .redirect_behavior = @enumFromInt(5),
-    });
-    defer dl_req.deinit();
-    try dl_req.sendBodiless();
-
-    var dl_header_buf: [8192]u8 = undefined;
-    var dl_res = try dl_req.receiveHead(&dl_header_buf);
-
-    if (dl_res.head.status != .ok) {
-        std.debug.print("Failed to download wheel (HTTP {})\n", .{dl_res.head.status});
-        return error.DownloadFailed;
-    }
-
-    const cwd = std.Io.Dir.cwd();
-    const tmp_path = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.whl", .{pkg});
-    defer allocator.free(tmp_path);
-
-    {
-        var out_file = try cwd.createFile(io, tmp_path, .{ .truncate = true });
-        defer out_file.close(io);
-
-        var file_writer_buf: [65536]u8 = undefined;
-        var file_writer = out_file.writer(io, &file_writer_buf);
-
-        var dl_transfer_buf: [65536]u8 = undefined;
-        const dl_reader = dl_res.reader(&dl_transfer_buf);
-
-        var total_downloaded: u64 = 0;
-        while (true) {
-            var chunk_buf: [65536]u8 = undefined;
-            const n = try dl_reader.readSliceShort(&chunk_buf);
-            if (n == 0) break;
-            try file_writer.interface.writeAll(chunk_buf[0..n]);
-            total_downloaded += n;
+    if (best_url == null) {
+        const built_ok = sdist_mod.buildAndInstallSdist(allocator, io, pkg, env.environ_map) catch false;
+        if (!built_ok) {
+            std.debug.print("No compatible wheel found for {s} on {s}/{s} ({s})\n", .{
+                pkg, env.os, env.arch, env.py_tag,
+            });
+            return error.NoCompatibleWheelFound;
         }
-        try file_writer.end();
-        std.debug.print("  [+] Streamed {d} bytes directly to disk.\n", .{total_downloaded});
-    }
+    } else {
+        const selected_url = best_url.?;
+        const selected_filename = best_filename.?;
 
-    std.debug.print("  [+] Extracting {s} into .cache/pyLibrary/...\n", .{selected_filename});
-    try zip_mod.extractZipFile(io, tmp_path, ".cache/pyLibrary");
-    cwd.deleteFile(io, tmp_path) catch {};
+        std.debug.print("  [+] Selected wheel: {s} (score: {})\n", .{ selected_filename, best_score });
+        std.debug.print("  [+] Downloading from: {s}\n", .{selected_url});
+
+        var dl_req = try client.request(.GET, try std.Uri.parse(selected_url), .{
+            .redirect_behavior = @enumFromInt(5),
+        });
+        defer dl_req.deinit();
+        try dl_req.sendBodiless();
+
+        var dl_header_buf: [8192]u8 = undefined;
+        var dl_res = try dl_req.receiveHead(&dl_header_buf);
+
+        if (dl_res.head.status != .ok) {
+            std.debug.print("Failed to download wheel (HTTP {})\n", .{dl_res.head.status});
+            return error.DownloadFailed;
+        }
+
+        const cwd = std.Io.Dir.cwd();
+        const tmp_path = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.whl", .{pkg});
+        defer allocator.free(tmp_path);
+
+        {
+            var out_file = try cwd.createFile(io, tmp_path, .{ .truncate = true });
+            defer out_file.close(io);
+
+            var file_writer_buf: [65536]u8 = undefined;
+            var file_writer = out_file.writer(io, &file_writer_buf);
+
+            var dl_transfer_buf: [65536]u8 = undefined;
+            const dl_reader = dl_res.reader(&dl_transfer_buf);
+
+            var total_downloaded: u64 = 0;
+            while (true) {
+                var chunk_buf: [65536]u8 = undefined;
+                const n = try dl_reader.readSliceShort(&chunk_buf);
+                if (n == 0) break;
+                try file_writer.interface.writeAll(chunk_buf[0..n]);
+                total_downloaded += n;
+            }
+            try file_writer.end();
+            std.debug.print("  [+] Streamed {d} bytes directly to disk.\n", .{total_downloaded});
+        }
+
+        std.debug.print("  [+] Extracting {s} into .cache/pyLibrary/...\n", .{selected_filename});
+        try zip_mod.extractZipFile(io, tmp_path, ".cache/pyLibrary");
+        cwd.deleteFile(io, tmp_path) catch {};
+    }
 
     const has_so = zip_mod.checkExtractedHasSo(allocator, io, ".cache/pyLibrary", pkg);
     if (has_so) {
@@ -143,18 +149,24 @@ pub fn fetchAndInstallPackage(
     if (parsed.value.info) |info| {
         if (info.requires_dist) |reqs| {
             for (reqs) |req_str| {
-                if (parseDependencySpec(allocator, req_str)) |dep_name| {
+                if (parseDependencySpec(allocator, req_str, env.os)) |dep_name| {
                     try deps_list.append(allocator, dep_name);
                 }
             }
         }
     }
+    if (deps_list.items.len == 0) {
+        sdist_mod.parseExtractedMetadataDeps(allocator, io, pkg, &deps_list) catch {};
+    }
 
     return try deps_list.toOwnedSlice(allocator);
 }
 
-pub fn parseDependencySpec(allocator: std.mem.Allocator, spec: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, spec, "extra") != null) return null;
+pub fn parseDependencySpec(allocator: std.mem.Allocator, spec: []const u8, os: []const u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, spec, ';')) |semi_idx| {
+        const marker = spec[semi_idx + 1 ..];
+        if (!env_mod.isMarkerSupported(marker, os)) return null;
+    }
     if (env_mod.parseRequirementLine(spec)) |pkg_name| {
         return allocator.dupe(u8, pkg_name) catch null;
     }

@@ -6,6 +6,7 @@ pub fn handleMissingModules(
     io: std.Io,
     compiler: anytype,
     auto_yes: *bool,
+    environ_map: ?*const std.process.Environ.Map,
 ) bool {
     std.debug.print("\n[SUNDAPY] Missing External Libraries Detected:\n", .{});
     for (compiler.global_missing_modules.items) |mod| {
@@ -37,7 +38,10 @@ pub fn handleMissingModules(
         for (compiler.global_missing_modules.items) |mod| {
             std.debug.print("Fetching '{s}' via sundafetch...\n", .{mod});
             const fetch_cmd = &[_][]const u8{ sundafetch_bin, mod };
-            const res = std.process.run(allocator, io, .{ .argv = fetch_cmd }) catch null;
+            const res = std.process.run(allocator, io, .{
+                .argv = fetch_cmd,
+                .environ_map = environ_map,
+            }) catch null;
             var fetch_failed = false;
             if (res == null or res.?.term != .exited or res.?.term.exited != 0) {
                 fetch_failed = true;
