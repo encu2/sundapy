@@ -4,23 +4,16 @@ const Dynamic = dynamic.Dynamic;
 const gpu_types = @import("datatype/gpu_types.zig");
 const GpuBuffer = gpu_types.GpuBuffer;
 const slab = @import("gpu_slab.zig");
-const codec_lz = @import("gpu_codec_lz.zig");
-// Sparse Virtual Memory & Page Table Paging Subsystem (Production-Grade)
+const sparse_vmm = @import("gpu_sparse_vmm.zig");
+const VmmPageTable = sparse_vmm.VmmPageTable;
+const sparse_soft = @import("gpu_sparse_software.zig");
+const SoftwarePageTable = sparse_soft.SoftwarePageTable;
 
-pub const VM_PAGE_BYTES: usize = 64 * 1024; // 64 KB per virtual page
-pub const VM_PAGE_FLOATS: usize = VM_PAGE_BYTES / @sizeOf(f32); // 16,384 floats
-pub const ALIGNMENT_GPU: usize = 256;
-pub const ALIGNMENT_CACHE_LINE: usize = 64;
+// Sparse Virtual Memory & Hardware VMM Stitching Subsystem (Production-Grade)
 
-pub const PageTableEntry = struct {
-    physical_dev_ptr: u64 = 0,
-    physical_host_ptr: ?[*]u8 = null,
-    is_committed: bool = false,
-    is_dirty: bool = false,
-    access_count: u32 = 0,
-    is_compressed: bool = false,
-    compressed_bytes: ?[]u8 = null,
-};
+pub const VM_PAGE_BYTES: usize = sparse_soft.VM_PAGE_BYTES;
+pub const VM_PAGE_FLOATS: usize = sparse_soft.VM_PAGE_FLOATS;
+pub const PageTableEntry = sparse_soft.PageTableEntry;
 
 pub const SparseVirtualBuffer = struct {
     allocator: std.mem.Allocator,
@@ -30,23 +23,37 @@ pub const SparseVirtualBuffer = struct {
     page_size_floats: usize,
     total_pages: usize,
     committed_pages: usize = 0,
-    entries: []PageTableEntry,
+    vmm_table: ?*VmmPageTable = null,
+    soft_table: ?*SoftwarePageTable = null,
     lock: slab.SpinLock = .{},
 
     pub fn init(allocator: std.mem.Allocator, elem_count: usize, custom_page_bytes: ?usize) !*SparseVirtualBuffer {
+        const self = try allocator.create(SparseVirtualBuffer);
+        errdefer allocator.destroy(self);
+
+        // 1. Hardware VMM path
+        if (VmmPageTable.init(allocator, elem_count, custom_page_bytes) catch null) |vt| {
+            self.* = SparseVirtualBuffer{
+                .allocator = allocator,
+                .virtual_elem_count = elem_count,
+                .virtual_size_bytes = vt.aligned_virtual_bytes,
+                .page_size_bytes = vt.page_size_bytes,
+                .page_size_floats = vt.page_size_floats,
+                .total_pages = vt.total_pages,
+                .committed_pages = 0,
+                .vmm_table = vt,
+                .soft_table = null,
+            };
+            return self;
+        }
+
+        // 2. Software emulation fallback path
         const page_bytes = if (custom_page_bytes) |cpb| @max(VM_PAGE_BYTES, cpb) else VM_PAGE_BYTES;
         const page_floats = page_bytes / @sizeOf(f32);
         const pages = if (elem_count == 0) 1 else (elem_count + page_floats - 1) / page_floats;
 
-        const self = try allocator.create(SparseVirtualBuffer);
-        errdefer allocator.destroy(self);
-
-        const table = try allocator.alloc(PageTableEntry, pages);
-        errdefer allocator.free(table);
-
-        for (table) |*entry| {
-            entry.* = PageTableEntry{};
-        }
+        const st = try SoftwarePageTable.init(allocator, pages, page_bytes);
+        errdefer st.deinit();
 
         self.* = SparseVirtualBuffer{
             .allocator = allocator,
@@ -56,7 +63,8 @@ pub const SparseVirtualBuffer = struct {
             .page_size_floats = page_floats,
             .total_pages = pages,
             .committed_pages = 0,
-            .entries = table,
+            .vmm_table = null,
+            .soft_table = st,
         };
         return self;
     }
@@ -65,18 +73,13 @@ pub const SparseVirtualBuffer = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        const slab_mgr = slab.getGlobalSlabManager();
-        for (self.entries) |*entry| {
-            if (entry.is_committed and entry.physical_host_ptr != null) {
-                slab_mgr.free(entry.physical_host_ptr.?);
-                entry.physical_host_ptr = null;
-            }
-            if (entry.compressed_bytes) |cb| {
-                self.allocator.free(cb);
-                entry.compressed_bytes = null;
-            }
+        if (self.vmm_table) |vt| {
+            vt.deinit();
+            self.vmm_table = null;
+        } else if (self.soft_table) |st| {
+            st.deinit();
+            self.soft_table = null;
         }
-        self.allocator.free(self.entries);
         self.allocator.destroy(self);
     }
 
@@ -84,158 +87,96 @@ pub const SparseVirtualBuffer = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        if (page_idx >= self.total_pages) return error.IndexError;
-        var entry = &self.entries[page_idx];
-        if (entry.is_committed) return;
-
-        const slab_mgr = slab.getGlobalSlabManager();
-        const alloc_res = try slab_mgr.alloc(self.page_size_bytes);
-
-        // If page was compressed, decompress existing content into the new page
-        if (entry.is_compressed and entry.compressed_bytes != null) {
-            const f_slice: [*]f32 = @ptrCast(@alignCast(alloc_res.host_ptr));
-            codec_lz.rleDecompressFloatsInto(entry.compressed_bytes.?, f_slice[0..self.page_size_floats]) catch {
-                @memset(alloc_res.host_ptr[0..self.page_size_bytes], 0);
-            };
-            self.allocator.free(entry.compressed_bytes.?);
-            entry.compressed_bytes = null;
-            entry.is_compressed = false;
-        } else {
-            @memset(alloc_res.host_ptr[0..self.page_size_bytes], 0);
+        if (self.vmm_table) |vt| {
+            try vt.commitPage(page_idx);
+            self.committed_pages = vt.committed_pages;
+        } else if (self.soft_table) |st| {
+            try st.commitPage(page_idx);
+            self.committed_pages = st.committed_pages;
         }
-
-        entry.physical_dev_ptr = alloc_res.dev_ptr;
-        entry.physical_host_ptr = alloc_res.host_ptr;
-        entry.is_committed = true;
-        entry.access_count += 1;
-        self.committed_pages += 1;
     }
 
     pub fn decommitPage(self: *SparseVirtualBuffer, page_idx: usize) void {
         self.lock.lock();
         defer self.lock.unlock();
 
-        if (page_idx >= self.total_pages) return;
-        var entry = &self.entries[page_idx];
-        if (!entry.is_committed or entry.physical_host_ptr == null) return;
-
-        const slab_mgr = slab.getGlobalSlabManager();
-        slab_mgr.free(entry.physical_host_ptr.?);
-        entry.physical_host_ptr = null;
-        entry.physical_dev_ptr = 0;
-        entry.is_committed = false;
-        entry.is_dirty = false;
-        entry.access_count = 0;
-        if (self.committed_pages > 0) self.committed_pages -= 1;
+        if (self.vmm_table) |vt| {
+            vt.decommitPage(page_idx);
+            self.committed_pages = vt.committed_pages;
+        } else if (self.soft_table) |st| {
+            st.decommitPage(page_idx);
+            self.committed_pages = st.committed_pages;
+        }
     }
 
     pub fn isPageCommitted(self: *SparseVirtualBuffer, page_idx: usize) bool {
         self.lock.lock();
         defer self.lock.unlock();
-        if (page_idx >= self.total_pages) return false;
-        return self.entries[page_idx].is_committed;
+        if (self.vmm_table) |vt| return vt.isPageCommitted(page_idx);
+        if (self.soft_table) |st| return st.isPageCommitted(page_idx);
+        return false;
     }
 
     pub fn readFloat(self: *SparseVirtualBuffer, idx: usize) !f32 {
         if (idx >= self.virtual_elem_count) return error.IndexError;
-        const page_idx = idx / self.page_size_floats;
-        const offset = idx % self.page_size_floats;
-
-        self.lock.lock();
-        defer self.lock.unlock();
-
-        const entry = &self.entries[page_idx];
-        if (!entry.is_committed) {
-            // Uncommitted pages return 0.0 without allocating physical VRAM
-            return 0.0;
+        if (self.vmm_table) |vt| return vt.readFloat(idx);
+        if (self.soft_table) |st| {
+            self.lock.lock();
+            defer self.lock.unlock();
+            return st.readFloat(idx);
         }
-
-        const host_floats: [*]const f32 = @ptrCast(@alignCast(entry.physical_host_ptr.?));
-        return host_floats[offset];
+        return 0.0;
     }
 
     pub fn writeFloat(self: *SparseVirtualBuffer, idx: usize, val: f32) !void {
         if (idx >= self.virtual_elem_count) return error.IndexError;
-        const page_idx = idx / self.page_size_floats;
-        const offset = idx % self.page_size_floats;
-
-        // On-demand page fault backing
-        if (!self.isPageCommitted(page_idx)) {
-            try self.commitPage(page_idx);
+        if (self.vmm_table) |vt| {
+            try vt.writeFloat(idx, val);
+            self.committed_pages = vt.committed_pages;
+            return;
         }
-
-        self.lock.lock();
-        defer self.lock.unlock();
-
-        var entry = &self.entries[page_idx];
-        const host_floats: [*]f32 = @ptrCast(@alignCast(entry.physical_host_ptr.?));
-        host_floats[offset] = val;
-        entry.is_dirty = true;
-        entry.access_count += 1;
+        if (self.soft_table) |st| {
+            self.lock.lock();
+            defer self.lock.unlock();
+            try st.writeFloat(idx, val);
+            self.committed_pages = st.committed_pages;
+        }
     }
 
     pub fn commitRange(self: *SparseVirtualBuffer, start_elem: usize, count: usize) !void {
         const end_elem = @min(self.virtual_elem_count, start_elem + count);
         if (start_elem >= end_elem) return;
-
         const start_page = start_elem / self.page_size_floats;
         const end_page = (end_elem + self.page_size_floats - 1) / self.page_size_floats;
-
-        for (start_page..end_page) |p| {
-            try self.commitPage(p);
-        }
+        for (start_page..end_page) |p| try self.commitPage(p);
     }
 
     pub fn decommitRange(self: *SparseVirtualBuffer, start_elem: usize, count: usize) void {
         const end_elem = @min(self.virtual_elem_count, start_elem + count);
         if (start_elem >= end_elem) return;
-
         const start_page = start_elem / self.page_size_floats;
         const end_page = (end_elem + self.page_size_floats - 1) / self.page_size_floats;
-
-        for (start_page..end_page) |p| {
-            self.decommitPage(p);
-        }
+        for (start_page..end_page) |p| self.decommitPage(p);
     }
 
     pub fn compressIdlePages(self: *SparseVirtualBuffer, min_idle_threshold: u32) !usize {
-        self.lock.lock();
-        defer self.lock.unlock();
-
-        var reclaimed_bytes: usize = 0;
-        const slab_mgr = slab.getGlobalSlabManager();
-
-        for (self.entries) |*entry| {
-            if (entry.is_committed and entry.access_count <= min_idle_threshold and entry.physical_host_ptr != null) {
-                const host_floats: [*]const f32 = @ptrCast(@alignCast(entry.physical_host_ptr.?));
-                const slice = host_floats[0..self.page_size_floats];
-
-                const comp = codec_lz.rleCompressFloats(self.allocator, slice) catch continue;
-                if (comp.len < self.page_size_bytes) {
-                    slab_mgr.free(entry.physical_host_ptr.?);
-                    entry.physical_host_ptr = null;
-                    entry.physical_dev_ptr = 0;
-                    entry.is_committed = false;
-                    entry.is_compressed = true;
-                    entry.compressed_bytes = comp;
-                    if (self.committed_pages > 0) self.committed_pages -= 1;
-                    reclaimed_bytes += (self.page_size_bytes - comp.len);
-                } else {
-                    self.allocator.free(comp);
-                }
-            }
+        if (self.vmm_table != null) return 0;
+        if (self.soft_table) |st| {
+            self.lock.lock();
+            defer self.lock.unlock();
+            const rec = try st.compressIdlePages(min_idle_threshold);
+            self.committed_pages = st.committed_pages;
+            return rec;
         }
-        return reclaimed_bytes;
+        return 0;
     }
 
     pub fn getPhysicalBytes(self: *SparseVirtualBuffer) usize {
         self.lock.lock();
         defer self.lock.unlock();
-        var comp_b: usize = 0;
-        for (self.entries) |entry| {
-            if (entry.compressed_bytes) |cb| comp_b += cb.len;
-        }
-        return (self.committed_pages * self.page_size_bytes) + comp_b;
+        if (self.vmm_table != null) return self.committed_pages * self.page_size_bytes;
+        if (self.soft_table) |st| return st.getPhysicalBytes();
+        return 0;
     }
 
     pub fn getVirtualBytes(self: *SparseVirtualBuffer) usize {
@@ -252,21 +193,59 @@ pub const SparseVirtualBuffer = struct {
         try dict.value.dict_type.put(Dynamic.initStr("physical_bytes"), Dynamic.initInt(@intCast(phys)));
         try dict.value.dict_type.put(Dynamic.initStr("virtual_elements"), Dynamic.initInt(@intCast(self.virtual_elem_count)));
         try dict.value.dict_type.put(Dynamic.initStr("page_size_bytes"), Dynamic.initInt(@intCast(self.page_size_bytes)));
+        const comm_pages = if (self.vmm_table) |vt| vt.committed_pages else self.committed_pages;
         try dict.value.dict_type.put(Dynamic.initStr("total_pages"), Dynamic.initInt(@intCast(self.total_pages)));
-        try dict.value.dict_type.put(Dynamic.initStr("committed_pages"), Dynamic.initInt(@intCast(self.committed_pages)));
+        try dict.value.dict_type.put(Dynamic.initStr("committed_pages"), Dynamic.initInt(@intCast(comm_pages)));
         try dict.value.dict_type.put(Dynamic.initStr("vram_savings_pct"), Dynamic.initFloat(savings));
+        try dict.value.dict_type.put(Dynamic.initStr("is_hardware_vmm"), Dynamic.initBool(self.vmm_table != null));
+        if (self.vmm_table) |vt| {
+            try dict.value.dict_type.put(Dynamic.initStr("va_base"), Dynamic.initInt(@intCast(vt.va_base)));
+        }
         return dict;
+    }
+
+    pub fn getPageMap(self: *SparseVirtualBuffer, alloc: std.mem.Allocator) !Dynamic {
+        self.lock.lock();
+        defer self.lock.unlock();
+        var list = std.ArrayList(Dynamic).empty;
+        if (self.vmm_table) |vt| {
+            for (0..vt.total_pages) |p| {
+                if (vt.is_committed[p]) {
+                    var item = Dynamic.initDict(alloc);
+                    try item.value.dict_type.put(Dynamic.initStr("page_idx"), Dynamic.initInt(@intCast(p)));
+                    try item.value.dict_type.put(Dynamic.initStr("is_committed"), Dynamic.initBool(true));
+                    try item.value.dict_type.put(Dynamic.initStr("is_compressed"), Dynamic.initBool(false));
+                    try item.value.dict_type.put(Dynamic.initStr("dev_ptr"), Dynamic.initInt(@intCast(vt.va_base + p * vt.page_size_bytes)));
+                    try item.value.dict_type.put(Dynamic.initStr("access_count"), Dynamic.initInt(1));
+                    try list.append(alloc, item);
+                }
+            }
+        } else if (self.soft_table) |st| {
+            for (st.entries, 0..) |entry, idx| {
+                if (entry.is_committed or entry.is_compressed) {
+                    var item = Dynamic.initDict(alloc);
+                    try item.value.dict_type.put(Dynamic.initStr("page_idx"), Dynamic.initInt(@intCast(idx)));
+                    try item.value.dict_type.put(Dynamic.initStr("is_committed"), Dynamic.initBool(entry.is_committed));
+                    try item.value.dict_type.put(Dynamic.initStr("is_compressed"), Dynamic.initBool(entry.is_compressed));
+                    try item.value.dict_type.put(Dynamic.initStr("dev_ptr"), Dynamic.initInt(@intCast(entry.physical_dev_ptr)));
+                    try item.value.dict_type.put(Dynamic.initStr("access_count"), Dynamic.initInt(@intCast(entry.access_count)));
+                    try list.append(alloc, item);
+                }
+            }
+        }
+        return Dynamic.initList(list);
     }
 
     pub fn toGpuBuffer(self: *SparseVirtualBuffer) !*GpuBuffer {
         const buf = try std.heap.c_allocator.create(GpuBuffer);
+        const dev_va: u64 = if (self.vmm_table) |vt| vt.va_base else 0;
         buf.* = GpuBuffer{
             .allocator = self.allocator,
             .size = self.virtual_elem_count,
             .data = &[_]f32{},
             .dtype = .f32,
-            .dev_ptr = 0,
-            .is_device_allocated = false,
+            .dev_ptr = dev_va,
+            .is_device_allocated = (dev_va != 0),
             .is_managed = false,
             .shape = [_]usize{ self.virtual_elem_count, 1, 1, 1 },
             .strides = [_]usize{ 1, 1, 1, 1 },
@@ -332,9 +311,7 @@ pub fn initSparseVmBridge() void {
     gpu_types.buffer_slab_free_fn = slab.slabFreeRaw;
 }
 
-// ============================================================================
 // Python API Callbacks
-// ============================================================================
 
 pub fn sparse_buffer(size_dyn: Dynamic, page_size_dyn: ?Dynamic) anyerror!Dynamic {
     if (size_dyn.value != .i64_type) return error.TypeError;

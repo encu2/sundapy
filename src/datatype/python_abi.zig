@@ -209,8 +209,9 @@ pub const sundapyBridge = struct {
                 kwargs_dict = sym.fn_PyDict_New();
                 var it = kw.value.dict_type.map.iterator();
                 while (it.next()) |entry| {
-                    const k_str = entry.key_ptr.*;
-                    const v_obj = conv.dynamicToPyObject(entry.value_ptr.*);
+                    const key_dyn = entry.value_ptr.key;
+                    const k_str = if (key_dyn.value == .str_type) key_dyn.value.str_type else key_dyn.builtin_str(alloc).value.str_type;
+                    const v_obj = conv.dynamicToPyObject(entry.value_ptr.value);
                     if (v_obj) |v| {
                         var c_str = alloc.alloc(u8, k_str.len + 1) catch continue;
                         defer alloc.free(c_str);
@@ -220,6 +221,7 @@ pub const sundapyBridge = struct {
                         sym.fn_Py_DecRef(v);
                     }
                 }
+
             }
         }
 
@@ -250,6 +252,9 @@ pub const sundapyBridge = struct {
     pub const isTrue = conv.isTrue;
     pub const getString = conv.getString;
     pub const getDynamicItem = conv.getDynamicItem;
+    pub const setDynamicItem = conv.setDynamicItem;
+    pub const getDynamicSlice = conv.getDynamicSlice;
     pub const doMath = conv.doMath;
     pub const doMathReverse = conv.doMathReverse;
 };
+

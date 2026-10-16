@@ -41,9 +41,12 @@ pub fn str_replace(self: Dynamic, allocator: std.mem.Allocator, old: Dynamic, ne
 
 pub fn str_join(self: Dynamic, allocator: std.mem.Allocator, iterable: Dynamic) !Dynamic {
     if (self.value != .str_type) return error.TypeError;
-    if (iterable.value != .list_type) return error.TypeError;
+    const items: []const Dynamic = switch (iterable.value) {
+        .list_type => |l| l.items.items,
+        .tuple_type => |t| t.items,
+        else => return error.TypeError,
+    };
 
-    const items = iterable.value.list_type.items.items;
     if (items.len == 0) return Dynamic.initStr("");
     if (items.len == 1) {
         if (items[0].value != .str_type) return error.TypeError;
@@ -83,5 +86,50 @@ pub fn str_upper(self: Dynamic, allocator: std.mem.Allocator) !Dynamic {
 pub fn str_lower(self: Dynamic, allocator: std.mem.Allocator) !Dynamic {
     if (self.value != .str_type) return error.TypeError;
     const res = try methods_case.lower(allocator, self.value.str_type);
+    return Dynamic.initStr(res);
+}
+
+pub fn str_startswith(self: Dynamic, allocator: std.mem.Allocator, prefix: Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type or prefix.value != .str_type) return error.TypeError;
+    return Dynamic.initBool(std.mem.startsWith(u8, self.value.str_type, prefix.value.str_type));
+}
+
+pub fn str_endswith(self: Dynamic, allocator: std.mem.Allocator, suffix: Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type or suffix.value != .str_type) return error.TypeError;
+    return Dynamic.initBool(std.mem.endsWith(u8, self.value.str_type, suffix.value.str_type));
+}
+
+pub fn str_find(self: Dynamic, allocator: std.mem.Allocator, sub: Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type or sub.value != .str_type) return error.TypeError;
+    if (std.mem.indexOf(u8, self.value.str_type, sub.value.str_type)) |idx| {
+        return Dynamic.initInt(@intCast(idx));
+    }
+    return Dynamic.initInt(-1);
+}
+
+pub fn str_strip(self: Dynamic, allocator: std.mem.Allocator, chars: ?Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type) return error.TypeError;
+    const trim_chars = if (chars != null and chars.?.value == .str_type) chars.?.value.str_type else " \t\r\n";
+    const res = std.mem.trim(u8, self.value.str_type, trim_chars);
+    return Dynamic.initStr(res);
+}
+
+pub fn str_lstrip(self: Dynamic, allocator: std.mem.Allocator, chars: ?Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type) return error.TypeError;
+    const trim_chars = if (chars != null and chars.?.value == .str_type) chars.?.value.str_type else " \t\r\n";
+    const res = std.mem.trimStart(u8, self.value.str_type, trim_chars);
+    return Dynamic.initStr(res);
+}
+
+pub fn str_rstrip(self: Dynamic, allocator: std.mem.Allocator, chars: ?Dynamic) !Dynamic {
+    _ = allocator;
+    if (self.value != .str_type) return error.TypeError;
+    const trim_chars = if (chars != null and chars.?.value == .str_type) chars.?.value.str_type else " \t\r\n";
+    const res = std.mem.trimEnd(u8, self.value.str_type, trim_chars);
     return Dynamic.initStr(res);
 }

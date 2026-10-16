@@ -9,6 +9,7 @@ const TemplateEntry = struct {
 const templates = [_]TemplateEntry{
     .{ .rel_path = "main.py", .data = @embedFile("templates/main.py"), .skip_if_exists = true },
     .{ .rel_path = "SUNDAPY_GUIDE.md", .data = @embedFile("templates/SUNDAPY_GUIDE.md"), .skip_if_exists = false },
+    .{ .rel_path = "AGENTS.md", .data = @embedFile("templates/AGENTS.md"), .skip_if_exists = false },
     .{ .rel_path = "pyrightconfig.json", .data = @embedFile("templates/pyrightconfig.json"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/settings.json", .data = @embedFile("templates/vscode/settings.json"), .skip_if_exists = false },
     .{ .rel_path = ".vscode/tasks.json", .data = @embedFile("templates/vscode/tasks.json"), .skip_if_exists = false },
@@ -73,5 +74,5 @@ pub fn runInit(allocator: std.mem.Allocator, io: std.Io) !void {
     std.debug.print("Next Steps:\n", .{});
     std.debug.print("  1. Run your code        : sundapy main.py\n", .{});
     std.debug.print("  2. Open in VSCode       : code .\n", .{});
-    std.debug.print("  3. Read Documentation   : View SUNDAPY_GUIDE.md\n\n", .{});
+    std.debug.print("  3. Read Documentation   : View SUNDAPY_GUIDE.md & AGENTS.md\n\n", .{});
 }

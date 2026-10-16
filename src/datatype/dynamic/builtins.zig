@@ -6,7 +6,7 @@ const mapping = @import("../mapping.zig");
 
     pub fn builtin_len(self: Dynamic) Dynamic {
         switch (self.value) {
-            .str_type, .list_type, .tuple_type, .range_type, .py_obj_type, .gpu_buffer_type => return Dynamic.initInt(@as(i64, @intCast(self.len()))),
+            .str_type, .list_type, .tuple_type, .range_type, .set_type, .frozenset_type, .py_obj_type, .gpu_buffer_type => return Dynamic.initInt(@as(i64, @intCast(self.len()))),
             .dict_type => |d| return Dynamic.initInt(@as(i64, @intCast(d.count()))),
             else => std.debug.panic("TypeError: object of type has no len()\n", .{}),
         }
@@ -32,12 +32,23 @@ const mapping = @import("../mapping.zig");
         };
     }
     pub fn builtin_isinstance(self: Dynamic, class_name: []const u8) Dynamic {
-        // Very basic isinstance checking.
-        if (std.mem.eql(u8, class_name, "int") and self.value == .i64_type) return Dynamic.initBool(true);
-        if (std.mem.eql(u8, class_name, "float") and self.value == .float_type) return Dynamic.initBool(true);
-        if (std.mem.eql(u8, class_name, "str") and self.value == .str_type) return Dynamic.initBool(true);
-        if (std.mem.eql(u8, class_name, "list") and self.value == .list_type) return Dynamic.initBool(true);
-        if (std.mem.eql(u8, class_name, "dict") and self.value == .dict_type) return Dynamic.initBool(true);
+        if (std.mem.eql(u8, class_name, "int")) {
+            return switch (self.value) {
+                .i8_type, .i16_type, .i32_type, .i64_type, .i128_type, .i256_type, .i512_type, .i1024_type,
+                .u8_type, .u16_type, .u32_type, .u64_type, .u128_type, .u256_type, .u512_type, .u1024_type, .bool_type => Dynamic.initBool(true),
+                else => Dynamic.initBool(false),
+            };
+        }
+        if (std.mem.eql(u8, class_name, "bool")) return Dynamic.initBool(self.value == .bool_type);
+        if (std.mem.eql(u8, class_name, "float")) return Dynamic.initBool(self.value == .float_type);
+        if (std.mem.eql(u8, class_name, "str")) return Dynamic.initBool(self.value == .str_type or self.value == .str16_type);
+        if (std.mem.eql(u8, class_name, "list")) return Dynamic.initBool(self.value == .list_type);
+        if (std.mem.eql(u8, class_name, "dict")) return Dynamic.initBool(self.value == .dict_type);
+        if (std.mem.eql(u8, class_name, "tuple")) return Dynamic.initBool(self.value == .tuple_type);
+        if (std.mem.eql(u8, class_name, "set")) return Dynamic.initBool(self.value == .set_type or self.value == .frozenset_type);
+        if (std.mem.eql(u8, class_name, "bytes")) return Dynamic.initBool(self.value == .bytes_type);
+        if (std.mem.eql(u8, class_name, "bytearray")) return Dynamic.initBool(self.value == .bytearray_type);
+        if (std.mem.eql(u8, class_name, "range")) return Dynamic.initBool(self.value == .range_type);
         return Dynamic.initBool(false);
     }
     pub fn builtin_int(self: Dynamic) Dynamic {
@@ -94,7 +105,18 @@ const mapping = @import("../mapping.zig");
         return Dynamic.initStr(s);
     }
     pub fn builtin_callable(self: Dynamic) Dynamic {
-        _ = self;
+        if (self.isFunction()) return Dynamic.initBool(true);
+        if (self.value == .py_obj_type) {
+            if (self.value.py_obj_type) |obj| {
+                const sym = @import("../python_abi/symbols.zig");
+                if (sym.fn_PyCallable_Check) |pcc| {
+                    return Dynamic.initBool(pcc(obj) != 0);
+                }
+            }
+        }
+        if (self.value == .dict_type) {
+            if (self.value.dict_type.get(Dynamic.initStr("__call__"))) |_| return Dynamic.initBool(true);
+        }
         return Dynamic.initBool(false);
     }
     pub fn builtin_chr(self: Dynamic, alloc: std.mem.Allocator) Dynamic {
@@ -160,16 +182,53 @@ const mapping = @import("../mapping.zig");
         std.debug.panic("TypeError: ord() expected string of length 1\n", .{});
         unreachable;
     }
+    fn sortLessThan(_: void, a: Dynamic, b: Dynamic) bool {
+        const a_num = switch (a.value) {
+            .i8_type, .i16_type, .i32_type, .i64_type, .u8_type, .u16_type, .u32_type, .u64_type, .float_type => true,
+            else => false,
+        };
+        const b_num = switch (b.value) {
+            .i8_type, .i16_type, .i32_type, .i64_type, .u8_type, .u16_type, .u32_type, .u64_type, .float_type => true,
+            else => false,
+        };
+        if (a_num and b_num) return a.toFloat() < b.toFloat();
+        if (a.value == .str_type and b.value == .str_type) return std.mem.lessThan(u8, a.value.str_type, b.value.str_type);
+        return false;
+    }
+
     pub fn builtin_reversed(self: Dynamic) Dynamic {
-        _ = self;
-        std.debug.panic("NotImplementedError: reversed()\n", .{});
-        unreachable;
+        const alloc = std.heap.c_allocator;
+        var result_list = std.ArrayList(Dynamic).empty;
+        const length = self.len();
+        var i: usize = 0;
+        while (i < length) : (i += 1) {
+            result_list.append(alloc, self.getItem(length - 1 - i)) catch unreachable;
+        }
+        return Dynamic.initList(result_list);
     }
 
     pub fn builtin_sorted(self: Dynamic) Dynamic {
-        _ = self;
-        std.debug.panic("NotImplementedError: sorted()\n", .{});
-        unreachable;
+        const alloc = std.heap.c_allocator;
+        var list = std.ArrayList(Dynamic).empty;
+        if (self.value == .dict_type) {
+            var it = self.value.dict_type.map.iterator();
+            while (it.next()) |entry| {
+                list.append(alloc, entry.value_ptr.key) catch unreachable;
+            }
+
+        } else if (self.value == .set_type) {
+            for (self.value.set_type.items.items) |item| {
+                list.append(alloc, item) catch unreachable;
+            }
+        } else {
+            const length = self.len();
+            var i: usize = 0;
+            while (i < length) : (i += 1) {
+                list.append(alloc, self.getItem(i)) catch unreachable;
+            }
+        }
+        std.mem.sort(Dynamic, list.items, {}, sortLessThan);
+        return Dynamic.initList(list);
     }
 
     pub fn builtin_bytearray(alloc: std.mem.Allocator, arg: Dynamic) Dynamic {

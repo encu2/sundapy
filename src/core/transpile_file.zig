@@ -71,17 +71,25 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
     
     const dir_path = std.fs.path.dirname(file_path) orelse ".";
     for (transpiler.imported_modules.items) |mod| {
+        var clean_mod = mod;
         var leading_dots: usize = 0;
-        while (leading_dots < mod.len and mod[leading_dots] == '.') {
+        while (leading_dots < clean_mod.len and clean_mod[leading_dots] == '.') {
             leading_dots += 1;
+        }
+        if (leading_dots > 0 and leading_dots < clean_mod.len and clean_mod[leading_dots] == '/') {
+            leading_dots += 1;
+        }
+        var raw_mod = clean_mod[leading_dots..];
+        const is_zig_ext = std.mem.endsWith(u8, raw_mod, ".zig");
+        if (is_zig_ext) {
+            raw_mod = raw_mod[0 .. raw_mod.len - 4];
         }
         
         var mod_slash: []u8 = undefined;
         var resolved_dir: []const u8 = undefined;
 
         if (leading_dots > 0) {
-            const clean_mod = mod[leading_dots..];
-            const clean_mod_slash = try std.mem.replaceOwned(u8, allocator, clean_mod, ".", "/");
+            const clean_mod_slash = try std.mem.replaceOwned(u8, allocator, raw_mod, ".", "/");
             defer allocator.free(clean_mod_slash);
             
             var curr_dir: []const u8 = std.fs.path.dirname(file_path) orelse ".";
@@ -92,7 +100,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                 }
             }
             
-            if (clean_mod.len > 0) {
+            if (raw_mod.len > 0) {
                 resolved_dir = curr_dir;
                 mod_slash = try std.fmt.allocPrint(allocator, "{s}", .{clean_mod_slash});
             } else {
@@ -101,15 +109,19 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             }
         } else {
             resolved_dir = dir_path;
-            mod_slash = try std.mem.replaceOwned(u8, allocator, mod, ".", "/");
+            mod_slash = try std.mem.replaceOwned(u8, allocator, raw_mod, ".", "/");
         }
         defer allocator.free(mod_slash);
 
         if (std.mem.endsWith(u8, mod, ".h") or std.mem.endsWith(u8, mod, ".c")) {
             const comp = @import("compiler.zig");
             if (std.mem.endsWith(u8, mod, ".c")) {
-                const c_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ resolved_dir, mod_slash });
-                try comp.addCSourceFile(allocator, c_path);
+                if (cwd.access(io, mod, .{})) |_| {
+                    try comp.addCSourceFile(allocator, mod);
+                } else |_| {
+                    const c_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ resolved_dir, mod });
+                    try comp.addCSourceFile(allocator, c_path);
+                }
             } else if (std.mem.endsWith(u8, mod, ".h")) {
                 const mod_no_ext = mod[0 .. mod.len - 2];
                 const c_cand1 = try std.fmt.allocPrint(allocator, "{s}.c", .{mod_no_ext});
@@ -117,7 +129,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                 if (cwd.access(io, c_cand1, .{})) |_| {
                     try comp.addCSourceFile(allocator, c_cand1);
                 } else |_| {
-                    const c_cand2 = try std.fmt.allocPrint(allocator, "{s}/{s}.c", .{ resolved_dir, mod_slash[0 .. mod_slash.len - 2] });
+                    const c_cand2 = try std.fmt.allocPrint(allocator, "{s}/{s}.c", .{ resolved_dir, mod_no_ext });
                     defer allocator.free(c_cand2);
                     if (cwd.access(io, c_cand2, .{})) |_| {
                         try comp.addCSourceFile(allocator, c_cand2);
@@ -132,6 +144,48 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                 }
             }
             continue;
+        }
+
+        var found_zig_src: ?[]const u8 = null;
+        var zig_candidates: [6][]const u8 = undefined;
+        var zig_cands_len: usize = 0;
+        if (is_zig_ext) {
+            zig_candidates[zig_cands_len] = mod; zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ resolved_dir, mod }); zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ resolved_dir, mod_slash }); zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}.zig", .{ mod_slash }); zig_cands_len += 1;
+        } else {
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ resolved_dir, mod_slash }); zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ resolved_dir, mod }); zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}.zig", .{ mod_slash }); zig_cands_len += 1;
+            zig_candidates[zig_cands_len] = try std.fmt.allocPrint(allocator, "{s}.zig", .{ mod }); zig_cands_len += 1;
+        }
+
+        for (zig_candidates[0..zig_cands_len]) |cand| {
+            if (cwd.access(io, cand, .{})) |_| {
+                found_zig_src = cand;
+                break;
+            } else |_| {}
+        }
+
+        if (found_zig_src) |z_src| {
+            const dest_path = try std.fmt.allocPrint(allocator, ".cache/src/{s}.zig", .{mod_slash});
+            defer allocator.free(dest_path);
+            if (std.fs.path.dirname(dest_path)) |dir| {
+                cwd.createDirPath(io, dir) catch {};
+            }
+            if (cwd.readFileAlloc(io, z_src, allocator, @enumFromInt(10 * 1024 * 1024))) |zig_content| {
+                defer allocator.free(zig_content);
+                cwd.writeFile(io, .{ .sub_path = dest_path, .data = zig_content }) catch {};
+            } else |_| {}
+            for (zig_candidates[0..zig_cands_len]) |c| {
+                if (c.ptr != mod.ptr) allocator.free(c);
+            }
+            continue;
+        }
+
+        for (zig_candidates[0..zig_cands_len]) |c| {
+            if (c.ptr != mod.ptr) allocator.free(c);
         }
 
         const embedded = @import("../embedded_datatype.zig");

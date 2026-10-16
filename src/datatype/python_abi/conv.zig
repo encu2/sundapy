@@ -17,6 +17,13 @@ pub fn dynamicToPyObject(arg: Dynamic) ?*anyopaque {
         .str_type => |s| sym.fn_PyUnicode_FromStringAndSize(@ptrCast(s.ptr), @intCast(s.len)),
         .bytes_type => |b| sym.fn_PyBytes_FromStringAndSize(@ptrCast(b.ptr), @intCast(b.len)),
         .i64_type => |i| sym.fn_PyLong_FromLongLong(i),
+        .i32_type => |i| sym.fn_PyLong_FromLongLong(@as(i64, i)),
+        .i16_type => |i| sym.fn_PyLong_FromLongLong(@as(i64, i)),
+        .i8_type => |i| sym.fn_PyLong_FromLongLong(@as(i64, i)),
+        .u64_type => |u| sym.fn_PyLong_FromLongLong(@as(i64, @bitCast(u))),
+        .u32_type => |u| sym.fn_PyLong_FromLongLong(@as(i64, u)),
+        .u16_type => |u| sym.fn_PyLong_FromLongLong(@as(i64, u)),
+        .u8_type => |u| sym.fn_PyLong_FromLongLong(@as(i64, u)),
         .float_type => |f| sym.fn_PyFloat_FromDouble(f),
         .bool_type => |b| sym.fn_PyBool_FromLong(if (b) 1 else 0),
         .py_obj_type => |p| {
@@ -51,18 +58,25 @@ pub fn dynamicToPyObject(arg: Dynamic) ?*anyopaque {
             defer d.unlock();
             var it = d.map.iterator();
             while (it.next()) |entry| {
-                const k_str = entry.key_ptr.*;
-                const v_obj = dynamicToPyObject(entry.value_ptr.*) orelse continue;
-                var c_str: [256]u8 = undefined;
-                if (k_str.len < 255) {
-                    @memcpy(c_str[0..k_str.len], k_str);
-                    c_str[k_str.len] = 0;
-                    _ = sym.fn_PyDict_SetItemString(py_dict, &c_str, v_obj);
+                const py_k = dynamicToPyObject(entry.value_ptr.key) orelse continue;
+                defer sym.fn_Py_DecRef(py_k);
+                const v_obj = dynamicToPyObject(entry.value_ptr.value) orelse continue;
+                if (sym.fn_PyObject_SetItem) |set_item| {
+                    _ = set_item(py_dict, py_k, v_obj);
+                } else if (entry.value_ptr.key.value == .str_type) {
+                    const k_str = entry.value_ptr.key.value.str_type;
+                    var c_str: [256]u8 = undefined;
+                    if (k_str.len < 255) {
+                        @memcpy(c_str[0..k_str.len], k_str);
+                        c_str[k_str.len] = 0;
+                        _ = sym.fn_PyDict_SetItemString(py_dict, &c_str, v_obj);
+                    }
                 }
                 sym.fn_Py_DecRef(v_obj);
             }
             return py_dict;
         },
+
         else => null,
     };
 }
@@ -162,6 +176,12 @@ pub fn doMathReverse(val1: Dynamic, obj2: *anyopaque, op: []const u8) !Dynamic {
         res = sym.fn_PyNumber_Multiply(py_val1.?, obj2);
     } else if (std.mem.eql(u8, op, "/")) {
         res = sym.fn_PyNumber_TrueDivide(py_val1.?, obj2);
+    } else if (std.mem.eql(u8, op, "//")) {
+        if (sym.fn_PyNumber_FloorDivide) |f| res = f(py_val1.?, obj2);
+    } else if (std.mem.eql(u8, op, "%")) {
+        if (sym.fn_PyNumber_Remainder) |f| res = f(py_val1.?, obj2);
+    } else if (std.mem.eql(u8, op, "**")) {
+        if (sym.fn_PyNumber_Power) |f| res = f(py_val1.?, obj2, sym.py_none orelse obj2);
     }
 
     if (res == null) {
@@ -187,6 +207,12 @@ pub fn doMath(obj1: *anyopaque, val2: Dynamic, op: []const u8) !Dynamic {
         res = sym.fn_PyNumber_Multiply(obj1, py_val2.?);
     } else if (std.mem.eql(u8, op, "/")) {
         res = sym.fn_PyNumber_TrueDivide(obj1, py_val2.?);
+    } else if (std.mem.eql(u8, op, "//")) {
+        if (sym.fn_PyNumber_FloorDivide) |f| res = f(obj1, py_val2.?);
+    } else if (std.mem.eql(u8, op, "%")) {
+        if (sym.fn_PyNumber_Remainder) |f| res = f(obj1, py_val2.?);
+    } else if (std.mem.eql(u8, op, "**")) {
+        if (sym.fn_PyNumber_Power) |f| res = f(obj1, py_val2.?, sym.py_none orelse obj1);
     }
 
     if (res == null) {
@@ -195,3 +221,43 @@ pub fn doMath(obj1: *anyopaque, val2: Dynamic, op: []const u8) !Dynamic {
     }
     return Dynamic{ .value = .{ .py_obj_type = res } };
 }
+
+pub fn setDynamicItem(obj: *anyopaque, index: Dynamic, value: Dynamic) !void {
+    const _gstate = sym.fn_PyGILState_Ensure();
+    defer sym.fn_PyGILState_Release(_gstate);
+
+    const set_fn = sym.fn_PyObject_SetItem orelse return error.TypeError;
+    const py_key = dynamicToPyObject(index) orelse return error.TypeError;
+    defer sym.fn_Py_DecRef(py_key);
+
+    const py_val = dynamicToPyObject(value) orelse return error.TypeError;
+    defer sym.fn_Py_DecRef(py_val);
+
+    const res = set_fn(obj, py_key, py_val);
+    if (res != 0) {
+        sym.fn_PyErr_Clear();
+        return error.KeyError;
+    }
+}
+
+pub fn getDynamicSlice(obj: *anyopaque, start: Dynamic, stop: Dynamic, step: Dynamic) !Dynamic {
+    const _gstate = sym.fn_PyGILState_Ensure();
+    defer sym.fn_PyGILState_Release(_gstate);
+
+    const slice_fn = sym.fn_PySlice_New orelse return error.TypeError;
+    const py_start: ?*anyopaque = if (start.value != .none_type) dynamicToPyObject(start) else null;
+    defer if (py_start) |ps| sym.fn_Py_DecRef(ps);
+
+    const py_stop: ?*anyopaque = if (stop.value != .none_type) dynamicToPyObject(stop) else null;
+    defer if (py_stop) |ps| sym.fn_Py_DecRef(ps);
+
+    const py_step: ?*anyopaque = if (step.value != .none_type) dynamicToPyObject(step) else null;
+    defer if (py_step) |ps| sym.fn_Py_DecRef(ps);
+
+    const slice_obj = slice_fn(py_start, py_stop, py_step) orelse return error.TypeError;
+    defer sym.fn_Py_DecRef(slice_obj);
+
+    const res_obj = sym.fn_PyObject_GetItem(obj, slice_obj) orelse return error.TypeError;
+    return Dynamic{ .value = .{ .py_obj_type = res_obj } };
+}
+

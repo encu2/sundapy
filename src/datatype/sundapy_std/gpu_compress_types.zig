@@ -1,6 +1,8 @@
 const std = @import("std");
 const dynamic = @import("datatype/dynamic.zig");
 const Dynamic = dynamic.Dynamic;
+const quant = @import("gpu_quant.zig");
+const gpu_types = @import("datatype/gpu_types.zig");
 
 // ============================================================================
 // Production GPU Memory Compression Types & Subsystem Enums
@@ -145,3 +147,6 @@ pub const BenchmarkEntry = struct {
     mse: f32,
     is_exact: bool,
 };
+
+pub const readCompressedItem = @import("datatype/gpu_compress_read.zig").readCompressedItem;
+

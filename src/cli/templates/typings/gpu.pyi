@@ -15,6 +15,7 @@ class GPUBuffer:
     dev_ptr: int
     is_device: bool
     is_managed: bool
+    is_pinned: bool
     is_compressed: bool
     compression_ratio: float
     savings_pct: float
@@ -32,6 +33,14 @@ class GPUBuffer:
 
     def stats(self) -> dict:
         """Mengembalikan statistik memori dan rasio kompresi buffer."""
+        ...
+
+    def copy_to(self, dst: "GPUBuffer") -> None:
+        """Menyalin data buffer ke buffer tujuan menggunakan transfer DMA berkecepatan tinggi."""
+        ...
+
+    def copy_from(self, src: "GPUBuffer") -> None:
+        """Menyalin data buffer dari buffer sumber menggunakan transfer DMA berkecepatan tinggi."""
         ...
 
 class GPUField:
@@ -201,5 +210,80 @@ def benchmark_compression(size_or_buf: Union[int, GPUBuffer] = 65536) -> List[di
     ### Menjalankan Benchmark Komparatif Seluruh Codec Kompresi VRAM
     Menghasilkan tabel performa lengkap (Rasio, Penghematan %, Kecepatan Kompresi & Dekompresi dalam GB/s, Max Error).
     """
+    ...
+
+def alloc_pinned(size: int, dtype: str = "f32") -> GPUBuffer:
+    """
+    ### Alokasi Pinned Host Memory (Page-Locked DMA)
+    Mengalokasikan memori host terkunci (page-locked) di RAM untuk transfer PCIe DMA zero-staging ke VRAM GPU.
+    """
+    ...
+
+def pinned_buffer(size: int) -> GPUBuffer:
+    """Shortcut alias untuk alloc_pinned(size)."""
+    ...
+
+def copy(src: GPUBuffer, dst: GPUBuffer) -> None:
+    """Menyalin data buffer dari src ke dst menggunakan transfer DMA langsung."""
+    ...
+
+def copy_buffer(src: GPUBuffer, dst: GPUBuffer) -> None:
+    """Alias untuk copy(src, dst)."""
+    ...
+
+def is_vmm_supported() -> bool:
+    """Memeriksa ketersediaan dukungan Hardware Virtual Memory Management (VMM)."""
+    ...
+
+def vmm_granularity() -> int:
+    """Mengembalikan ukuran granularitas alokasi fisik VMM dalam byte."""
+    ...
+
+class CUDAGraph:
+    """
+    ### CUDA Execution Graph
+    Graf eksekusi CUDA terkompilasi untuk eksekusi kernel native dengan latensi sub-1.5 µs.
+    """
+    node_count: int
+    is_instantiated: bool
+
+    def add_kernel(self, kernel_or_name: str, grid: Tuple[int, ...] = (1, 1, 1), block: Tuple[int, ...] = (64, 1, 1), args: List[Any] = []) -> int:
+        """Menambahkan node kernel ke dalam graf eksekusi."""
+        ...
+
+    def instantiate(self) -> "CUDAGraph":
+        """Menginstansiasi topologi graf ke dalam objek eksekutabel perangkat keras."""
+        ...
+
+    def launch(self) -> None:
+        """Meluncurkan graf eksekusi secara instan dengan overhead pengemudian minimal."""
+        ...
+
+    def benchmark(self, iterations: int = 100) -> float:
+        """Mengukur latensi peluncuran rata-rata per iterasi dalam mikrodetik (µs)."""
+        ...
+
+    def destroy(self) -> None:
+        """Membebaskan seluruh sumber daya graf eksekusi GPU."""
+        ...
+
+def create_graph() -> CUDAGraph:
+    """Membangun instance CUDA Graph baru."""
+    ...
+
+def Graph() -> CUDAGraph:
+    """Alias untuk create_graph()."""
+    ...
+
+def graph_instantiate(graph: CUDAGraph) -> None:
+    """Menginstansiasi graf eksekusi CUDA."""
+    ...
+
+def graph_launch(graph: CUDAGraph) -> None:
+    """Meluncurkan graf eksekusi CUDA ke GPU stream."""
+    ...
+
+def graph_benchmark(graph: CUDAGraph, iterations: int = 100) -> float:
+    """Mengukur latensi eksekusi graf CUDA dalam mikrodetik."""
     ...
 

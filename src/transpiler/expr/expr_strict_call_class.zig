@@ -50,18 +50,31 @@ pub fn transpileStrictClassCall(self: *Transpiler, c: anytype, name: []const u8)
     try self.emit("    }} else {{\n", .{});
     try self.emit("        const T_{s} = @TypeOf({s});\n", .{ name, name });
     try self.emit("        if (T_{s} == type) {{\n", .{name});
-    try self.emit("            var obj = {s}{{}};\n", .{name});
-    try self.emit("            _ = try obj.__init__(", .{});
+    try self.emit("            if (comptime @hasDecl({s}, \"init\")) {{\n", .{name});
+    try self.emit("                const _ifn_{d} = {s}.init;\n", .{ lid, name });
+    if (c.args.items.len > 0) {
+        try self.emit("                const _iinfo_{d} = @typeInfo(@TypeOf(_ifn_{d})).@\"fn\";\n", .{ lid, lid });
+    }
+    try self.emit("                const _ir_{d} = _ifn_{d}(", .{ lid, lid });
     for (c.args.items, 0..) |arg, idx| {
-        if (self.is_strict) {
-            try self.transpileExprStrict(arg);
-        } else {
-            try self.transpileExpr(arg);
-        }
+        try self.emit("_sundapy_cast_param(_sundapy_param_type(_iinfo_{d}, {d}), ", .{ lid, idx });
+        if (self.is_strict) { try self.transpileExprStrict(arg); } else { try self.transpileExpr(arg); }
+        try self.emit(")", .{});
         if (idx < c.args.items.len - 1) try self.emit(", ", .{});
     }
     try self.emit(");\n", .{});
-    try self.emit("            break :blk_{d} obj;\n", .{lid});
+    try self.emit("                break :blk_{d} _ir_{d};\n", .{ lid, lid });
+    try self.emit("            }} else {{\n", .{});
+    try self.emit("                var obj = {s}{{}};\n", .{name});
+    try self.emit("                if (comptime @hasDecl({s}, \"__init__\")) {{\n", .{name});
+    try self.emit("                    _ = try obj.__init__(", .{});
+    for (c.args.items, 0..) |arg, idx| {
+        if (self.is_strict) { try self.transpileExprStrict(arg); } else { try self.transpileExpr(arg); }
+        if (idx < c.args.items.len - 1) try self.emit(", ", .{});
+    }
+    try self.emit(");\n                }}\n", .{});
+    try self.emit("                break :blk_{d} obj;\n", .{lid});
+    try self.emit("            }}\n", .{});
     try self.emit("        }} else if (T_{s} == dynamic.Dynamic) {{\n", .{name});
     try self.emit("            var _args_arr = [_]Dynamic{{", .{});
     for (c.args.items, 0..) |arg2, idx2| {

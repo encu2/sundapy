@@ -63,12 +63,25 @@ pub const Lexer = struct {
         } else {
             const s_start = self.pos;
             while (self.peek() != quote and self.peek() != 0 and self.peek() != '\n') {
+                if (self.peek() == '\\' and self.pos + 1 < self.source.len) {
+                    _ = self.advance();
+                }
                 _ = self.advance();
             }
             const lex = self.source[s_start..self.pos];
             if (self.peek() == quote) _ = self.advance();
             return lex;
         }
+    }
+
+    fn lexRawStringLiteral(self: *Lexer, quote: u8) []const u8 {
+        const raw = self.lexStringLiteral(quote);
+        var out: std.ArrayList(u8) = .empty;
+        for (raw) |ch| {
+            if (ch == '\\') out.appendSlice(self.allocator, "\\\\") catch unreachable
+            else out.append(self.allocator, ch) catch unreachable;
+        }
+        return out.items;
     }
 
     pub fn nextToken(self: *Lexer) Token {
@@ -185,6 +198,24 @@ pub const Lexer = struct {
                     const quote = self.advance();
                     const lexeme = self.lexStringLiteral(quote);
                     return .{ .type = if (is_tmpl) .TString else .DString, .lexeme = lexeme, .line = self.line };
+                }
+                if (self.pos + 2 < self.source.len and (self.source[self.pos + 2] == '"' or self.source[self.pos + 2] == '\'')) {
+                    const c2 = self.source[self.pos + 1];
+                    const is_rb = (c == 'r' or c == 'R') and (c2 == 'b' or c2 == 'B');
+                    const is_br = (c == 'b' or c == 'B') and (c2 == 'r' or c2 == 'R');
+                    if (is_rb or is_br) {
+                        _ = self.advance();
+                        _ = self.advance();
+                        const quote = self.advance();
+                        return .{ .type = .String, .lexeme = self.lexRawStringLiteral(quote), .line = self.line };
+                    }
+                }
+                if ((c == 'b' or c == 'B' or c == 'r' or c == 'R' or c == 'u' or c == 'U') and self.pos + 1 < self.source.len and (self.source[self.pos + 1] == '"' or self.source[self.pos + 1] == '\'')) {
+                    const is_raw = (c == 'r' or c == 'R');
+                    _ = self.advance();
+                    const quote = self.advance();
+                    const lexeme = if (is_raw) self.lexRawStringLiteral(quote) else self.lexStringLiteral(quote);
+                    return .{ .type = .String, .lexeme = lexeme, .line = self.line };
                 }
                 while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') {
                     _ = self.advance();

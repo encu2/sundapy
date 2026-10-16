@@ -8,7 +8,8 @@ pub fn transpileCall(self: *Transpiler, c: anytype, node: *ast.Node) !void {
         if (self.is_strict) {
             try self.emit("std.debug.print(\"", .{});
             for (c.args.items, 0..) |arg, idx| {
-                if (arg.* == .string) {
+                const is_str = (arg.* == .string or arg.* == .fstring or arg.* == .dstring or (arg.* == .call and arg.call.callee.* == .identifier and std.mem.eql(u8, arg.call.callee.identifier.name, "str")) or (arg.* == .identifier and std.mem.eql(u8, arg.identifier.name, "__name__")));
+                if (is_str) {
                     try self.emit("{{s}}", .{});
                 } else {
                     try self.emit("{{any}}", .{});

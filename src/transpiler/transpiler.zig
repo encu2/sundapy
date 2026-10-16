@@ -101,7 +101,14 @@ pub const Transpiler = struct {
         if (start_idx == mod_name.len) {
             return try self.allocator.dupe(u8, "___dummy___");
         }
-        const mod_slash = try self.allocator.dupe(u8, mod_name[start_idx..]);
+        var raw = mod_name[start_idx..];
+        while (raw.len > 0 and raw[0] == '/') {
+            raw = raw[1..];
+        }
+        if (std.mem.endsWith(u8, raw, ".zig")) {
+            raw = raw[0 .. raw.len - 4];
+        }
+        const mod_slash = try self.allocator.dupe(u8, raw);
         for (mod_slash) |*c| {
             if (c.* == '.') c.* = '/';
         }
@@ -112,15 +119,20 @@ pub const Transpiler = struct {
         switch (stmt.*) {
             .import_stmt => |i| {
                 try self.imported_modules.append(self.allocator, i.name);
-                if (i.alias) |a| try self.module_aliases.put(a, i.name);
+                const base_name = if (i.alias) |a| a else (if (std.mem.endsWith(u8, i.name, ".zig") or std.mem.endsWith(u8, i.name, ".h") or std.mem.endsWith(u8, i.name, ".c")) std.fs.path.stem(i.name) else i.name);
+                try self.module_aliases.put(base_name, i.name);
                 if (std.mem.endsWith(u8, i.name, ".h") or std.mem.endsWith(u8, i.name, ".c")) {
-                    const target_name = if (i.alias) |a| a else std.fs.path.stem(i.name);
-                    try self.c_imported_modules.put(target_name, true);
+                    try self.c_imported_modules.put(base_name, true);
                 }
             },
             .from_import => |f| {
                 try self.imported_modules.append(self.allocator, f.module);
                 if (f.alias) |a| try self.module_aliases.put(a, f.module);
+                const base_mod = if (std.mem.endsWith(u8, f.module, ".zig") or std.mem.endsWith(u8, f.module, ".h") or std.mem.endsWith(u8, f.module, ".c")) std.fs.path.stem(f.module) else f.module;
+                try self.module_aliases.put(base_mod, f.module);
+                if (std.mem.endsWith(u8, f.module, ".h") or std.mem.endsWith(u8, f.module, ".c")) {
+                    try self.c_imported_modules.put(base_mod, true);
+                }
             },
             .def_stmt => |d| {
                 for (d.body.items) |s| try self.collectImports(s);

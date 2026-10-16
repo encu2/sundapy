@@ -148,6 +148,7 @@ pub fn fromAny(val: anytype) Dynamic {
     pub fn initStr(val: []const u8) Dynamic { return .{ .value = .{ .str_type = val } }; }
     pub fn initList(val: std.ArrayList(Dynamic)) Dynamic { return .{ .value = .{ .list_type = .{ .items = val } } }; }
     pub fn initDict(allocator: std.mem.Allocator) Dynamic { return .{ .value = .{ .dict_type = mapping.Dict.init(allocator) catch unreachable } }; }
+    pub fn initSet(allocator: std.mem.Allocator) Dynamic { return .{ .value = .{ .set_type = set_type.Set.init(allocator) } }; }
     /// Wrap a heap-allocated struct pointer (class instance) as a Dynamic object.
     pub fn initObject(ptr: *anyopaque) Dynamic { return .{ .value = .{ .py_obj_type = ptr } }; }
 
@@ -247,48 +248,33 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const pos = ops.pos;
     
     pub const str_split = @import("dynamic/str_methods.zig").str_split;
-    
     pub const str_replace = @import("dynamic/str_methods.zig").str_replace;
-    
     pub const str_join = @import("dynamic/str_methods.zig").str_join;
-    
     pub const str_upper = @import("dynamic/str_methods.zig").str_upper;
-    
     pub const str_lower = @import("dynamic/str_methods.zig").str_lower;
-    
-    
-    
+    pub const str_startswith = @import("dynamic/str_methods.zig").str_startswith;
+    pub const str_endswith = @import("dynamic/str_methods.zig").str_endswith;
+    pub const str_find = @import("dynamic/str_methods.zig").str_find;
+    pub const str_strip = @import("dynamic/str_methods.zig").str_strip;
+    pub const str_lstrip = @import("dynamic/str_methods.zig").str_lstrip;
+    pub const str_rstrip = @import("dynamic/str_methods.zig").str_rstrip;
     
     pub const builtin_len = @import("dynamic/builtins.zig").builtin_len;
-    
     pub const builtin_type = @import("dynamic/builtins.zig").builtin_type;
-    
     pub const builtin_isinstance = @import("dynamic/builtins.zig").builtin_isinstance;
-    
     pub const builtin_int = @import("dynamic/builtins.zig").builtin_int;
-    
     pub const builtin_float = @import("dynamic/builtins.zig").builtin_float;
-    
-    
     pub const builtin_bool = @import("dynamic/builtins.zig").builtin_bool;
-    
     pub const builtin_min = @import("dynamic/builtins_math.zig").builtin_min;
     pub const builtin_max = @import("dynamic/builtins_math.zig").builtin_max;
     pub const builtin_sum = @import("dynamic/builtins_math.zig").builtin_sum;
     pub const builtin_abs = @import("dynamic/builtins_math.zig").builtin_abs;
-    
     pub const builtin_all = @import("dynamic/builtins.zig").builtin_all;
-    
     pub const builtin_any = @import("dynamic/builtins.zig").builtin_any;
-    
     pub const builtin_ascii = @import("dynamic/builtins.zig").builtin_ascii;
-    
     pub const builtin_repr = @import("dynamic/builtins.zig").builtin_repr;
-    
     pub const builtin_bin = @import("dynamic/builtins.zig").builtin_bin;
-    
     pub const builtin_callable = @import("dynamic/builtins.zig").builtin_callable;
-    
     pub const builtin_chr = @import("dynamic/builtins.zig").builtin_chr;
     pub const builtin_enumerate = @import("dynamic/builtins.zig").builtin_enumerate;
     pub const builtin_hash = @import("dynamic/builtins.zig").builtin_hash;
@@ -337,6 +323,10 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const list_count = @import("dynamic/list_methods.zig").list_count;
     pub const list_index = @import("dynamic/list_methods.zig").list_index;
     pub const list_pop = @import("dynamic/list_methods.zig").list_pop;
+    pub const list_pop_at = @import("dynamic/list_methods.zig").list_pop_at;
+    pub const list_clear = @import("dynamic/list_methods.zig").list_clear;
+    pub const list_copy = @import("dynamic/list_methods.zig").list_copy;
+    pub const list_extend = @import("dynamic/list_methods.zig").list_extend;
     pub const list_sort = @import("dynamic/list_methods.zig").list_sort;
 };
 
@@ -346,25 +336,10 @@ pub const None = Dynamic{ .value = .none_type };
 
 pub const print = @import("dynamic/print.zig").print;
 
-pub fn stringify(allocator: std.mem.Allocator, val: anytype) Dynamic {
-    const T = @TypeOf(val);
-    if (T == Dynamic) {
-        return val.builtin_str(allocator);
-    } else {
-        const str = std.fmt.allocPrint(allocator, "{any}", .{val}) catch "error";
-        return Dynamic{ .value = .{ .str_type = str } };
-    }
-}
+pub const stringifyStr = @import("dynamic/builtins_conv.zig").stringifyStr;
 
-pub fn stringifyStr(allocator: std.mem.Allocator, val: anytype) []const u8 {
-    const T = @TypeOf(val);
-    if (T == Dynamic) {
-        return val.builtin_str(allocator).value.str_type;
-    } else if (T == []const u8 or T == [:0]const u8) {
-        return val;
-    } else {
-        return std.fmt.allocPrint(allocator, "{any}", .{val}) catch "error";
-    }
+pub fn stringify(allocator: std.mem.Allocator, val: anytype) Dynamic {
+    return Dynamic{ .value = .{ .str_type = stringifyStr(allocator, val) } };
 }
 
 pub fn toDynamicFunc(f: anytype) Dynamic {

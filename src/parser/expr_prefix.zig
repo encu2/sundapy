@@ -186,7 +186,11 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 node.* = .{ .list_expr = .{ .items = items } };
                 return node;
             }
-            return items.items[0];
+            const single = items.items[0];
+            if (single.* == .binary) {
+                single.binary.is_parenthesized = true;
+            }
+            return single;
         },
         .LBrace => {
             self.advance();

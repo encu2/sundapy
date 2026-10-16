@@ -85,7 +85,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
         },
         .raise_stmt => |r| try @import("stmt/stmt_misc.zig").transpileRaise(self, r),
         .import_stmt => |i| {
-            const base_target_name = if (i.alias) |a| a else i.name;
+            const base_target_name = if (i.alias) |a| a else (if (std.mem.endsWith(u8, i.name, ".zig")) std.fs.path.stem(i.name) else i.name);
             const target_name = try self.escapeKeyword(base_target_name);
             defer self.allocator.free(target_name);
             const mod_slash = try self.getModSlash(i.name);

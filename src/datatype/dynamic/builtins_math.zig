@@ -97,10 +97,13 @@ pub fn builtin_round(self: Dynamic) Dynamic {
 }
 
 pub fn builtin_divmod(self: Dynamic, other: Dynamic) Dynamic {
-    _ = self;
-    _ = other;
-    std.debug.panic("NotImplementedError: divmod()\n", .{});
-    unreachable;
+    const q = self.floorDiv(other);
+    const r = self.mod(other);
+    const alloc = std.heap.page_allocator;
+    const items = alloc.alloc(Dynamic, 2) catch unreachable;
+    items[0] = q;
+    items[1] = r;
+    return Dynamic{ .value = .{ .tuple_type = .{ .items = items, .allocator = alloc } } };
 }
 
 pub fn builtin_pow(self: Dynamic, other: Dynamic) Dynamic {

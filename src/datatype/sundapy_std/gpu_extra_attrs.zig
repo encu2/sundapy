@@ -13,6 +13,8 @@ const sparse_vm = @import("gpu_sparse_vm.zig");
 const arena = @import("gpu_arena.zig");
 const gateway = @import("gpu_gateway.zig");
 const pool = @import("gpu_pool.zig");
+const gpu_types = @import("datatype/gpu_types.zig");
+const graph = @import("gpu_graph.zig");
 
 // ============================================================================
 // Extra GPU Subsystem Dynamic Dispatch Table
@@ -33,6 +35,50 @@ fn sparse_buffer_slice(_: std.mem.Allocator, args: []const Dynamic, kwargs: ?Dyn
 fn sparse_compress_idle_slice(_: std.mem.Allocator, args: []const Dynamic, _: ?Dynamic) anyerror!Dynamic {
     if (args.len == 0) return error.TypeError;
     return sparse_vm.sparse_compress_idle(args[0]);
+}
+
+fn alloc_pinned_slice(_: std.mem.Allocator, args: []const Dynamic, _: ?Dynamic) anyerror!Dynamic {
+    if (args.len == 0) return error.TypeError;
+    var s: usize = 0;
+    if (args[0].value == .i64_type) {
+        s = @intCast(@max(0, args[0].value.i64_type));
+    } else return error.TypeError;
+
+    var dt = gpu_types.GpuDtype.f32;
+    if (args.len > 1 and args[1].value == .str_type) {
+        dt = gpu_types.GpuDtype.fromString(args[1].value.str_type);
+    }
+    driver.initGpuDriver(null);
+    const buf = try gpu_types.GpuBuffer.initPinned(std.heap.c_allocator, s, dt);
+    return buf.asDynamic();
+}
+
+fn is_vmm_supported_dyn() anyerror!Dynamic {
+    driver.initGpuDriver(null);
+    return Dynamic.initBool(driver.isVmmSupported());
+}
+
+fn vmm_granularity_dyn() anyerror!Dynamic {
+    driver.initGpuDriver(null);
+    return Dynamic.initInt(@intCast(driver.getVmmGranularity()));
+}
+
+fn graph_benchmark_slice(_: std.mem.Allocator, args: []const Dynamic, _: ?Dynamic) anyerror!Dynamic {
+    if (args.len == 0) return error.TypeError;
+    const iters: ?Dynamic = if (args.len > 1) args[1] else null;
+    return graph.graph_benchmark(args[0], iters);
+}
+
+fn copy_slice(_: std.mem.Allocator, args: []const Dynamic, _: ?Dynamic) anyerror!Dynamic {
+    if (args.len < 2) return error.TypeError;
+    if (args[0].value != .gpu_buffer_type or args[1].value != .gpu_buffer_type) return error.TypeError;
+    const src: *gpu_types.GpuBuffer = @ptrCast(@alignCast(args[0].value.gpu_buffer_type));
+    const dst: *gpu_types.GpuBuffer = @ptrCast(@alignCast(args[1].value.gpu_buffer_type));
+    if (gpu_types.buffer_copy_fn) |cfn| {
+        _ = cfn(dst, src);
+        return Dynamic.initNone();
+    }
+    return error.CopyFailed;
 }
 
 pub fn lookup(attr: []const u8) ?Dynamic {
@@ -87,6 +133,20 @@ pub fn lookup(attr: []const u8) ?Dynamic {
     if (std.mem.eql(u8, attr, "get_opencl_platform_name")) return dynamic.toDynamicFunc(opencl.get_opencl_platform_name);
 
     if (std.mem.eql(u8, attr, "alloc_dtype") or std.mem.eql(u8, attr, "alloc_typed")) return dynamic.toDynamicFunc(@import("gpu.zig").alloc_dtype);
+
+    // Pinned Host Memory (Zero-Staging DMA) & Direct DMA Buffer Copy
+    if (std.mem.eql(u8, attr, "alloc_pinned") or std.mem.eql(u8, attr, "pinned_buffer")) return Dynamic{ .value = .{ .func_type_slice = alloc_pinned_slice } };
+    if (std.mem.eql(u8, attr, "copy") or std.mem.eql(u8, attr, "copy_buffer")) return Dynamic{ .value = .{ .func_type_slice = copy_slice } };
+
+    // Hardware Virtual Memory Management (VMM)
+    if (std.mem.eql(u8, attr, "is_vmm_supported")) return dynamic.toDynamicFunc(is_vmm_supported_dyn);
+    if (std.mem.eql(u8, attr, "vmm_granularity")) return dynamic.toDynamicFunc(vmm_granularity_dyn);
+
+    // Targeted CUDA Graph Execution Engine
+    if (std.mem.eql(u8, attr, "create_graph") or std.mem.eql(u8, attr, "Graph")) return dynamic.toDynamicFunc(graph.create_graph);
+    if (std.mem.eql(u8, attr, "graph_instantiate")) return dynamic.toDynamicFunc(graph.graph_instantiate);
+    if (std.mem.eql(u8, attr, "graph_launch")) return dynamic.toDynamicFunc(graph.graph_launch);
+    if (std.mem.eql(u8, attr, "graph_benchmark")) return Dynamic{ .value = .{ .func_type_slice = graph_benchmark_slice } };
 
     // VRAM Slab & Buddy Sub-Allocator
     if (std.mem.eql(u8, attr, "slab_alloc")) return dynamic.toDynamicFunc(slab.slab_alloc);

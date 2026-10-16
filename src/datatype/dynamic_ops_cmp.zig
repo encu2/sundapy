@@ -81,6 +81,39 @@ pub fn eq(a: Dynamic, b: Dynamic) Dynamic {
                 else => return Dynamic.initBool(false),
             }
         },
+        .dict_type => |av| {
+            switch (b.value) {
+                .dict_type => |bv| {
+                    if (av.count() != bv.count()) return Dynamic.initBool(false);
+                    av.lock();
+                    defer av.unlock();
+                    var it = av.map.iterator();
+                    while (it.next()) |entry| {
+                        const val_b = bv.get(entry.value_ptr.key) orelse return Dynamic.initBool(false);
+                        if (!eq(entry.value_ptr.value, val_b).toBool()) return Dynamic.initBool(false);
+                    }
+                    return Dynamic.initBool(true);
+
+                },
+                else => return Dynamic.initBool(false),
+            }
+        },
+        .set_type => |av| {
+            switch (b.value) {
+                .set_type => |bv| {
+                    if (av.items.items.len != bv.items.items.len) return Dynamic.initBool(false);
+                    for (av.items.items) |elem_a| {
+                        var found = false;
+                        for (bv.items.items) |elem_b| {
+                            if (eq(elem_a, elem_b).toBool()) { found = true; break; }
+                        }
+                        if (!found) return Dynamic.initBool(false);
+                    }
+                    return Dynamic.initBool(true);
+                },
+                else => return Dynamic.initBool(false),
+            }
+        },
         else => return Dynamic.initBool(false),
     }
 }
@@ -90,109 +123,47 @@ pub fn neq(a: Dynamic, b: Dynamic) Dynamic {
     return Dynamic.initBool(!res.value.bool_type);
 }
 
+inline fn isIntOrBool(d: Dynamic) bool {
+    return switch (d.value) {
+        .i64_type, .i32_type, .i16_type, .i8_type,
+        .u64_type, .u32_type, .u16_type, .u8_type,
+        .bool_type => true,
+        else => false,
+    };
+}
+
+inline fn isNumOrBool(d: Dynamic) bool {
+    return isIntOrBool(d) or d.value == .float_type;
+}
+
 pub fn lt(a: Dynamic, b: Dynamic) Dynamic {
-    switch (a.value) {
-        .i64_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av < bv),
-                .float_type => |bv| return Dynamic.initBool(@as(f64, @floatFromInt(av)) < bv),
-                else => std.debug.panic("TypeError: '<' not supported between instances\n", .{}),
-            }
-        },
-        .float_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av < @as(f64, @floatFromInt(bv))),
-                .float_type => |bv| return Dynamic.initBool(av < bv),
-                else => std.debug.panic("TypeError: '<' not supported between instances\n", .{}),
-            }
-        },
-        .str_type => |av| {
-            switch (b.value) {
-                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, av, bv)),
-                else => std.debug.panic("TypeError: '<' not supported between instances\n", .{}),
-            }
-        },
-        else => std.debug.panic("TypeError: '<' not supported between instances\n", .{}),
-    }
+    if (isIntOrBool(a) and isIntOrBool(b)) return Dynamic.initBool(a.toInt() < b.toInt());
+    if (isNumOrBool(a) and isNumOrBool(b)) return Dynamic.initBool(a.toFloat() < b.toFloat());
+    if (a.value == .str_type and b.value == .str_type) return Dynamic.initBool(std.mem.lessThan(u8, a.value.str_type, b.value.str_type));
+    std.debug.panic("TypeError: '<' not supported between instances\n", .{});
 }
 
 pub fn gt(a: Dynamic, b: Dynamic) Dynamic {
-    switch (a.value) {
-        .i64_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av > bv),
-                .float_type => |bv| return Dynamic.initBool(@as(f64, @floatFromInt(av)) > bv),
-                else => std.debug.panic("TypeError: '>' not supported between instances\n", .{}),
-            }
-        },
-        .float_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av > @as(f64, @floatFromInt(bv))),
-                .float_type => |bv| return Dynamic.initBool(av > bv),
-                else => std.debug.panic("TypeError: '>' not supported between instances\n", .{}),
-            }
-        },
-        .str_type => |av| {
-            switch (b.value) {
-                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, bv, av)),
-                else => std.debug.panic("TypeError: '>' not supported between instances\n", .{}),
-            }
-        },
-        else => std.debug.panic("TypeError: '>' not supported between instances\n", .{}),
-    }
+    if (isIntOrBool(a) and isIntOrBool(b)) return Dynamic.initBool(a.toInt() > b.toInt());
+    if (isNumOrBool(a) and isNumOrBool(b)) return Dynamic.initBool(a.toFloat() > b.toFloat());
+    if (a.value == .str_type and b.value == .str_type) return Dynamic.initBool(std.mem.lessThan(u8, b.value.str_type, a.value.str_type));
+    std.debug.panic("TypeError: '>' not supported between instances\n", .{});
 }
 
 pub fn le(a: Dynamic, b: Dynamic) Dynamic {
-    switch (a.value) {
-        .i64_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av <= bv),
-                .float_type => |bv| return Dynamic.initBool(@as(f64, @floatFromInt(av)) <= bv),
-                else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
-            }
-        },
-        .float_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av <= @as(f64, @floatFromInt(bv))),
-                .float_type => |bv| return Dynamic.initBool(av <= bv),
-                else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
-            }
-        },
-        .str_type => |av| {
-            switch (b.value) {
-                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, av, bv) or std.mem.eql(u8, av, bv)),
-                else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
-            }
-        },
-        else => std.debug.panic("TypeError: '<=' not supported between instances\n", .{}),
-    }
+    if (isIntOrBool(a) and isIntOrBool(b)) return Dynamic.initBool(a.toInt() <= b.toInt());
+    if (isNumOrBool(a) and isNumOrBool(b)) return Dynamic.initBool(a.toFloat() <= b.toFloat());
+    if (a.value == .str_type and b.value == .str_type) return Dynamic.initBool(std.mem.lessThan(u8, a.value.str_type, b.value.str_type) or std.mem.eql(u8, a.value.str_type, b.value.str_type));
+    std.debug.panic("TypeError: '<=' not supported between instances\n", .{});
 }
 
 pub fn ge(a: Dynamic, b: Dynamic) Dynamic {
-    switch (a.value) {
-        .i64_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av >= bv),
-                .float_type => |bv| return Dynamic.initBool(@as(f64, @floatFromInt(av)) >= bv),
-                else => std.debug.panic("TypeError: '>=' not supported between instances of '{s}' and '{s}'\n", .{@tagName(a.value), @tagName(b.value)}),
-            }
-        },
-        .float_type => |av| {
-            switch (b.value) {
-                .i64_type => |bv| return Dynamic.initBool(av >= @as(f64, @floatFromInt(bv))),
-                .float_type => |bv| return Dynamic.initBool(av >= bv),
-                else => std.debug.panic("TypeError: '>=' not supported between instances of '{s}' and '{s}'\n", .{@tagName(a.value), @tagName(b.value)}),
-            }
-        },
-        .str_type => |av| {
-            switch (b.value) {
-                .str_type => |bv| return Dynamic.initBool(std.mem.lessThan(u8, bv, av) or std.mem.eql(u8, av, bv)),
-                else => std.debug.panic("TypeError: '>=' not supported between instances of '{s}' and '{s}'\n", .{@tagName(a.value), @tagName(b.value)}),
-            }
-        },
-        else => std.debug.panic("TypeError: '>=' not supported between instances of '{s}' and '{s}'\n", .{@tagName(a.value), @tagName(b.value)}),
-    }
+    if (isIntOrBool(a) and isIntOrBool(b)) return Dynamic.initBool(a.toInt() >= b.toInt());
+    if (isNumOrBool(a) and isNumOrBool(b)) return Dynamic.initBool(a.toFloat() >= b.toFloat());
+    if (a.value == .str_type and b.value == .str_type) return Dynamic.initBool(std.mem.lessThan(u8, b.value.str_type, a.value.str_type) or std.mem.eql(u8, a.value.str_type, b.value.str_type));
+    std.debug.panic("TypeError: '>=' not supported between instances of '{s}' and '{s}'\n", .{@tagName(a.value), @tagName(b.value)});
 }
+
 
 pub fn contains(collection: Dynamic, item: Dynamic) Dynamic {
     switch (collection.value) {
@@ -216,17 +187,28 @@ pub fn contains(collection: Dynamic, item: Dynamic) Dynamic {
             return Dynamic.initBool(false);
         },
         .dict_type => |dv| {
-            var it = dv.map.keyIterator();
-            while (it.next()) |k| {
-                if (item.value == .str_type and std.mem.eql(u8, k.*, item.value.str_type)) {
-                    return Dynamic.initBool(true);
-                }
-            }
-            return Dynamic.initBool(false);
+            return Dynamic.initBool(dv.get(item) != null);
         },
         .set_type => |sv| {
             for (sv.items.items) |elem| {
                 if (eq(elem, item).toBool()) return Dynamic.initBool(true);
+            }
+            return Dynamic.initBool(false);
+        },
+        .frozenset_type => |fv| {
+            for (fv.items) |elem| {
+                if (eq(elem, item).toBool()) return Dynamic.initBool(true);
+            }
+            return Dynamic.initBool(false);
+        },
+        .range_type => |r| {
+            if (item.value == .i64_type) {
+                const val = item.value.i64_type;
+                if (r.step > 0) {
+                    if (val >= r.start and val < r.stop and @mod(val - r.start, r.step) == 0) return Dynamic.initBool(true);
+                } else if (r.step < 0) {
+                    if (val <= r.start and val > r.stop and @mod(r.start - val, -r.step) == 0) return Dynamic.initBool(true);
+                }
             }
             return Dynamic.initBool(false);
         },

@@ -58,12 +58,27 @@ pub fn transpileStrictBuiltinCall(self: *Transpiler, c: anytype, name: []const u
         try self.emit(").builtin_type()", .{});
         return true;
     } else if (std.mem.eql(u8, name, "isinstance")) {
-        try self.emit("(", .{});
-        try self.transpileExpr(c.args.items[0]);
-        if (c.args.items[1].* == .identifier) {
-            try self.emit(").builtin_isinstance(\"{s}\")", .{c.args.items[1].identifier.name});
+        if (c.args.items.len >= 2 and c.args.items[1].* == .list_expr) {
+            try self.emit("Dynamic.initBool(", .{});
+            for (c.args.items[1].list_expr.items.items, 0..) |elem, idx| {
+                if (idx > 0) try self.emit(" or ", .{});
+                if (elem.* == .identifier) {
+                    try self.emit("(", .{});
+                    try self.transpileExpr(c.args.items[0]);
+                    try self.emit(").builtin_isinstance(\"{s}\").toBool()", .{elem.identifier.name});
+                } else {
+                    try self.emit("false", .{});
+                }
+            }
+            try self.emit(")", .{});
         } else {
-            try self.emit(").builtin_isinstance(\"\")", .{});
+            try self.emit("(", .{});
+            try self.transpileExpr(c.args.items[0]);
+            if (c.args.items.len >= 2 and c.args.items[1].* == .identifier) {
+                try self.emit(").builtin_isinstance(\"{s}\")", .{c.args.items[1].identifier.name});
+            } else {
+                try self.emit(").builtin_isinstance(\"\")", .{});
+            }
         }
         return true;
     } else if (std.mem.eql(u8, name, "input")) {

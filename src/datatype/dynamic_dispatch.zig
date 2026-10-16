@@ -40,6 +40,10 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
             std.mem.eql(u8, attr, "keys") or 
             std.mem.eql(u8, attr, "get") or 
             std.mem.eql(u8, attr, "pop") or 
+            std.mem.eql(u8, attr, "clear") or 
+            std.mem.eql(u8, attr, "copy") or 
+            std.mem.eql(u8, attr, "setdefault") or 
+            std.mem.eql(u8, attr, "popitem") or 
             std.mem.eql(u8, attr, "read") or 
             std.mem.eql(u8, attr, "write") or 
             std.mem.eql(u8, attr, "close") or 
@@ -93,18 +97,18 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
             self.value.dict_type.lock();
             defer self.value.dict_type.unlock();
             var list = std.ArrayList(Dynamic).empty;
-            var it = self.value.dict_type.map.valueIterator();
-            while (it.next()) |v| {
-                try list.append(alloc, v.*);
+            var it = self.value.dict_type.map.iterator();
+            while (it.next()) |entry| {
+                try list.append(alloc, entry.value_ptr.value);
             }
             return Dynamic.initList(list);
         } else if (std.mem.eql(u8, attr, "keys")) {
             self.value.dict_type.lock();
             defer self.value.dict_type.unlock();
             var list = std.ArrayList(Dynamic).empty;
-            var it = self.value.dict_type.map.keyIterator();
-            while (it.next()) |k| {
-                try list.append(alloc, Dynamic.initStr(k.*));
+            var it = self.value.dict_type.map.iterator();
+            while (it.next()) |entry| {
+                try list.append(alloc, entry.value_ptr.key);
             }
             return Dynamic.initList(list);
         } else if (std.mem.eql(u8, attr, "items")) {
@@ -113,7 +117,7 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
             var list = std.ArrayList(Dynamic).empty;
             var it = self.value.dict_type.map.iterator();
             while (it.next()) |entry| {
-                const pair = [_]Dynamic{ Dynamic.initStr(entry.key_ptr.*), entry.value_ptr.* };
+                const pair = [_]Dynamic{ entry.value_ptr.key, entry.value_ptr.value };
                 const tuple = try @import("sequence/list.zig").Tuple.init(alloc, &pair);
                 try list.append(alloc, Dynamic{ .value = .{ .tuple_type = tuple } });
             }
@@ -140,7 +144,7 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
             if (args.len > 1) {
                 return args[1];
             }
-            return Dynamic.initNone();
+            return error.KeyError;
         } else if (std.mem.eql(u8, attr, "update")) {
 
             if (args.len > 0) {
@@ -158,14 +162,54 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
                     defer arg.value.dict_type.unlock();
                     var it = arg.value.dict_type.map.iterator();
                     while (it.next()) |entry| {
-                        try self.value.dict_type.put(Dynamic.initStr(entry.key_ptr.*), entry.value_ptr.*);
+                        try self.value.dict_type.put(entry.value_ptr.key, entry.value_ptr.value);
                     }
                 }
             }
             return Dynamic.initNone();
+        } else if (std.mem.eql(u8, attr, "clear")) {
+            self.value.dict_type.lock();
+            defer self.value.dict_type.unlock();
+            self.value.dict_type.map.clearRetainingCapacity();
+            return Dynamic.initNone();
+        } else if (std.mem.eql(u8, attr, "copy")) {
+            self.value.dict_type.lock();
+            defer self.value.dict_type.unlock();
+            const new_dict = Dynamic.initDict(alloc);
+            var it = self.value.dict_type.map.iterator();
+            while (it.next()) |entry| {
+                try new_dict.value.dict_type.put(entry.value_ptr.key, entry.value_ptr.value);
+            }
+            return new_dict;
+        } else if (std.mem.eql(u8, attr, "setdefault")) {
+            if (args.len > 0) {
+                const k = args[0];
+                if (self.value.dict_type.get(k)) |val| {
+                    return val;
+                }
+                const default_val = if (args.len > 1) args[1] else Dynamic.initNone();
+                try self.value.dict_type.put(k, default_val);
+                return default_val;
+            }
+            return Dynamic.initNone();
+        } else if (std.mem.eql(u8, attr, "popitem")) {
+            self.value.dict_type.lock();
+            defer self.value.dict_type.unlock();
+            var it = self.value.dict_type.map.iterator();
+            if (it.next()) |entry| {
+                const k = entry.value_ptr.key;
+                const v = entry.value_ptr.value;
+                const map_key = entry.key_ptr.*;
+                const pair = [_]Dynamic{ k, v };
+                const tuple = try @import("sequence/list.zig").Tuple.init(alloc, &pair);
+                _ = self.value.dict_type.map.remove(map_key);
+                return Dynamic{ .value = .{ .tuple_type = tuple } };
+            }
+            return error.KeyError;
         } else if (std.mem.eql(u8, attr, "__aenter__") or std.mem.eql(u8, attr, "__enter__")) {
             return self;
         } else if (std.mem.eql(u8, attr, "__aexit__") or std.mem.eql(u8, attr, "__exit__")) {
+
             return Dynamic.initNone();
         } else if (std.mem.eql(u8, attr, "read")) {
             if (self.value.dict_type.get(Dynamic.initStr("path"))) |path_dyn| {
@@ -234,17 +278,17 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
     } else if (self.value == .func_type_1) {
         var a0 = if (args.len > 0) args[0] else Dynamic.initNone();
         if (a0.value == .none_type and kwargs != null and kwargs.?.value == .dict_type) {
-            var it = kwargs.?.value.dict_type.map.valueIterator();
-            if (it.next()) |v| { a0 = v.*; }
+            var it = kwargs.?.value.dict_type.map.iterator();
+            if (it.next()) |entry| { a0 = entry.value_ptr.value; }
         }
         return self.value.func_type_1(a0);
     } else if (self.value == .func_type_2) {
         var a0 = if (args.len > 0) args[0] else Dynamic.initNone();
         var a1 = if (args.len > 1) args[1] else Dynamic.initNone();
         if (kwargs != null and kwargs.?.value == .dict_type) {
-            var it = kwargs.?.value.dict_type.map.valueIterator();
-            if (a0.value == .none_type) { if (it.next()) |v| { a0 = v.*; } }
-            if (a1.value == .none_type) { if (it.next()) |v| { a1 = v.*; } }
+            var it = kwargs.?.value.dict_type.map.iterator();
+            if (a0.value == .none_type) { if (it.next()) |entry| { a0 = entry.value_ptr.value; } }
+            if (a1.value == .none_type) { if (it.next()) |entry| { a1 = entry.value_ptr.value; } }
         }
         return self.value.func_type_2(a0, a1);
     } else if (self.value == .func_type_3) {
@@ -260,10 +304,10 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
             if (kw.get(Dynamic.initStr("distance"))) |v| { a2 = v; }
             if (kw.get(Dynamic.initStr("stop"))) |v| { a1 = v; }
             if (kw.get(Dynamic.initStr("step"))) |v| { a2 = v; }
-            var it = kw.map.valueIterator();
-            if (a0.value == .none_type) { if (it.next()) |v| { a0 = v.*; } }
-            if (a1.value == .none_type) { if (it.next()) |v| { a1 = v.*; } }
-            if (a2.value == .none_type) { if (it.next()) |v| { a2 = v.*; } }
+            var it = kw.map.iterator();
+            if (a0.value == .none_type) { if (it.next()) |entry| { a0 = entry.value_ptr.value; } }
+            if (a1.value == .none_type) { if (it.next()) |entry| { a1 = entry.value_ptr.value; } }
+            if (a2.value == .none_type) { if (it.next()) |entry| { a2 = entry.value_ptr.value; } }
         }
         return self.value.func_type_3(a0, a1, a2);
     } else if (self.value == .func_type_4) {
@@ -272,13 +316,14 @@ pub fn builtin_call(self: Dynamic, alloc: std.mem.Allocator, args: []const Dynam
         var a2 = if (args.len > 2) args[2] else Dynamic.initNone();
         var a3 = if (args.len > 3) args[3] else Dynamic.initNone();
         if (kwargs != null and kwargs.?.value == .dict_type) {
-            var it = kwargs.?.value.dict_type.map.valueIterator();
-            if (a0.value == .none_type) { if (it.next()) |v| { a0 = v.*; } }
-            if (a1.value == .none_type) { if (it.next()) |v| { a1 = v.*; } }
-            if (a2.value == .none_type) { if (it.next()) |v| { a2 = v.*; } }
-            if (a3.value == .none_type) { if (it.next()) |v| { a3 = v.*; } }
+            var it = kwargs.?.value.dict_type.map.iterator();
+            if (a0.value == .none_type) { if (it.next()) |entry| { a0 = entry.value_ptr.value; } }
+            if (a1.value == .none_type) { if (it.next()) |entry| { a1 = entry.value_ptr.value; } }
+            if (a2.value == .none_type) { if (it.next()) |entry| { a2 = entry.value_ptr.value; } }
+            if (a3.value == .none_type) { if (it.next()) |entry| { a3 = entry.value_ptr.value; } }
         }
         return self.value.func_type_4(a0, a1, a2, a3);
+
     } else if (self.value == .func_type_slice) {
         return self.value.func_type_slice(alloc, args, kwargs);
     } else if (self.value == .gpu_kernel_type) {

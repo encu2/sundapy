@@ -6,6 +6,13 @@ pub var fn_PyNumber_Add: *const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyop
 pub var fn_PyNumber_Subtract: *const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
 pub var fn_PyNumber_Multiply: *const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
 pub var fn_PyNumber_TrueDivide: *const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = undefined;
+pub var fn_PyNumber_FloorDivide: ?*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = null;
+pub var fn_PyNumber_Remainder: ?*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = null;
+pub var fn_PyNumber_Power: ?*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) ?*anyopaque = null;
+pub var fn_PyCallable_Check: ?*const fn (*anyopaque) callconv(.c) c_int = null;
+pub var fn_PyObject_SetItem: ?*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) c_int = null;
+pub var fn_PySlice_New: ?*const fn (?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = null;
+
 
 pub var fn_Py_Initialize: *const fn () callconv(.c) void = undefined;
 pub var fn_PyRun_SimpleString: *const fn ([*c]const u8) callconv(.c) c_int = undefined;
@@ -125,4 +132,11 @@ pub fn loadSymbols() !void {
     fn_PyBool_Type = lib.?.lookup(*anyopaque, "PyBool_Type") orelse return error.MissingSymbol;
     fn_PyObject_IsTrue = lib.?.lookup(*const fn (*anyopaque) callconv(.c) c_int, "PyObject_IsTrue") orelse return error.MissingSymbol;
     py_none = lib.?.lookup(*anyopaque, "_Py_NoneStruct");
+    fn_PyNumber_FloorDivide = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_FloorDivide");
+    fn_PyNumber_Remainder = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Remainder");
+    fn_PyNumber_Power = lib.?.lookup(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Power");
+    fn_PyCallable_Check = lib.?.lookup(*const fn (*anyopaque) callconv(.c) c_int, "PyCallable_Check");
+    fn_PyObject_SetItem = lib.?.lookup(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) c_int, "PyObject_SetItem");
+    fn_PySlice_New = lib.?.lookup(*const fn (?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque, "PySlice_New");
 }
+

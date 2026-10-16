@@ -28,6 +28,16 @@ pub var buffer_compress_hook: ?*const fn (*GpuBuffer, []const u8) anyerror!void 
 pub var buffer_decompress_hook: ?*const fn (*GpuBuffer) anyerror!void = null;
 pub var budget_register_fn: ?*const fn (*GpuBuffer) void = null;
 pub var budget_unregister_fn: ?*const fn (*GpuBuffer) void = null;
+pub const PinnedAllocResult = struct {
+    host_ptr: ?[*]u8 = null,
+    dev_ptr: u64 = 0,
+};
+pub var buffer_pinned_alloc_fn: ?*const fn (usize) PinnedAllocResult = null;
+pub var buffer_pinned_free_fn: ?*const fn (?*anyopaque) void = null;
+pub var buffer_copy_fn: ?*const fn (*GpuBuffer, *GpuBuffer) bool = null;
+pub var buffer_graph_deinit_fn: ?*const fn (*anyopaque) void = null;
+pub var buffer_graph_call_fn: ?*const fn (*anyopaque, []const u8, std.mem.Allocator, []const Dynamic) anyerror!Dynamic = null;
+pub var buffer_graph_getattr_fn: ?*const fn (*anyopaque, []const u8) ?Dynamic = null;
 
 pub const GpuDtype = enum {
     f32,
@@ -116,7 +126,10 @@ pub const GpuBuffer = struct {
     compression_info: ?*CompressionInfo = null,
     is_suballocated: bool = false,
     is_sparse_vm: bool = false,
+    is_pinned: bool = false,
+    is_graph: bool = false,
     sparse_vm_ptr: ?*anyopaque = null,
+    graph_ptr: ?*anyopaque = null,
     slab_slot_ptr: ?*anyopaque = null,
 
     pub fn init(allocator: std.mem.Allocator, size: usize) !*GpuBuffer {
@@ -140,6 +153,45 @@ pub const GpuBuffer = struct {
         return self;
     }
 
+    pub fn initPinned(allocator: std.mem.Allocator, size: usize, dt: GpuDtype) !*GpuBuffer {
+        const item_bytes = dt.sizeOf();
+        const alloc_bytes = @max(size * item_bytes, size * @sizeOf(f32));
+        var host_slice: []f32 = undefined;
+        var pinned = false;
+        var dptr: u64 = 0;
+
+        if (buffer_pinned_alloc_fn) |palloc| {
+            const res = palloc(alloc_bytes);
+            if (res.host_ptr) |raw| {
+                @memset(raw[0..alloc_bytes], 0);
+                const f_ptr: [*]f32 = @ptrCast(@alignCast(raw));
+                host_slice = f_ptr[0..size];
+                pinned = true;
+                dptr = res.dev_ptr;
+            }
+        }
+        if (!pinned) {
+            const float_count = (alloc_bytes + @sizeOf(f32) - 1) / @sizeOf(f32);
+            const mem = try allocator.alloc(f32, float_count);
+            @memset(mem, 0.0);
+            host_slice = mem[0..size];
+        }
+        const self = try allocator.create(GpuBuffer);
+        self.* = GpuBuffer{
+            .allocator = allocator,
+            .size = size,
+            .data = host_slice,
+            .dtype = dt,
+            .dev_ptr = dptr,
+            .is_device_allocated = (dptr != 0),
+            .is_pinned = pinned,
+            .shape = [_]usize{ size, 1, 1, 1 },
+            .strides = [_]usize{ 1, 1, 1, 1 },
+            .ndim = 1,
+        };
+        return self;
+    }
+
     pub fn deinit(self: *GpuBuffer) void {
         if (budget_unregister_fn) |bunreg| {
             bunreg(self);
@@ -150,8 +202,14 @@ pub const GpuBuffer = struct {
             }
             self.sparse_vm_ptr = null;
         }
+        if (self.is_graph and self.graph_ptr != null) {
+            if (buffer_graph_deinit_fn) |gdeinit| {
+                gdeinit(self.graph_ptr.?);
+            }
+            self.graph_ptr = null;
+        }
         if (buffer_free_fn) |free_fn| {
-            if (self.is_device_allocated and self.dev_ptr != 0) {
+            if (!self.is_sparse_vm and !self.is_pinned and self.is_device_allocated and self.dev_ptr != 0) {
                 free_fn(self.dev_ptr);
                 self.dev_ptr = 0;
                 self.is_device_allocated = false;
@@ -162,7 +220,11 @@ pub const GpuBuffer = struct {
             self.allocator.destroy(ci);
             self.compression_info = null;
         }
-        if (self.is_suballocated) {
+        if (self.is_pinned) {
+            if (buffer_pinned_free_fn) |pfree| {
+                pfree(self.data.ptr);
+            }
+        } else if (self.is_suballocated) {
             if (buffer_slab_free_fn) |sfree| {
                 if (self.data.len > 0) sfree(@ptrCast(self.data.ptr));
             }
@@ -173,7 +235,7 @@ pub const GpuBuffer = struct {
     }
 
     pub fn toDevice(self: *GpuBuffer) void {
-        if (self.is_managed) {
+        if (self.is_managed or self.is_pinned or self.is_sparse_vm) {
             if (buffer_sync_fn) |sfn| sfn();
             return;
         }
@@ -181,7 +243,7 @@ pub const GpuBuffer = struct {
     }
 
     pub fn toHost(self: *GpuBuffer) void {
-        if (self.is_managed) {
+        if (self.is_managed or self.is_pinned or self.is_sparse_vm) {
             if (buffer_sync_fn) |sfn| sfn();
             return;
         }
@@ -243,8 +305,15 @@ pub fn bufferGetAttribute(ptr: *anyopaque, attr: []const u8) Dynamic {
     if (std.mem.eql(u8, attr, "itemsize")) return Dynamic.initInt(@intCast(buf.dtype.sizeOf()));
     if (std.mem.eql(u8, attr, "nbytes")) return Dynamic.initInt(@intCast(buf.size * buf.dtype.sizeOf()));
 
-    // Sparse VM & Slab attributes
+    // Sparse VM & Slab & Graph attributes
+    if (buf.is_graph and buf.graph_ptr != null) {
+        if (buffer_graph_getattr_fn) |gafn| {
+            if (gafn(buf.graph_ptr.?, attr)) |res| return res;
+        }
+    }
+    if (std.mem.eql(u8, attr, "is_pinned")) return Dynamic.initBool(buf.is_pinned);
     if (std.mem.eql(u8, attr, "is_sparse_vm")) return Dynamic.initBool(buf.is_sparse_vm);
+    if (std.mem.eql(u8, attr, "is_graph")) return Dynamic.initBool(buf.is_graph);
     if (std.mem.eql(u8, attr, "is_suballocated")) return Dynamic.initBool(buf.is_suballocated);
     if (std.mem.eql(u8, attr, "virtual_size")) return Dynamic.initInt(@intCast(buf.size * buf.dtype.sizeOf()));
 
@@ -262,15 +331,7 @@ pub fn bufferGetAttribute(ptr: *anyopaque, attr: []const u8) Dynamic {
         for (0..buf.ndim) |i| shape_list.append(std.heap.c_allocator, Dynamic.initInt(@intCast(buf.shape[i]))) catch {};
         return Dynamic.initList(shape_list);
     }
-    if (std.mem.eql(u8, attr, "compress") or std.mem.eql(u8, attr, "decompress") or
-        std.mem.eql(u8, attr, "compact") or std.mem.eql(u8, attr, "uncompact") or std.mem.eql(u8, attr, "spmv") or
-        std.mem.eql(u8, attr, "stats") or std.mem.eql(u8, attr, "get_stats") or
-        std.mem.eql(u8, attr, "to_raw_handle") or std.mem.eql(u8, attr, "fill") or std.mem.eql(u8, attr, "to_list") or
-        std.mem.eql(u8, attr, "to_device") or std.mem.eql(u8, attr, "to_host") or std.mem.eql(u8, attr, "copy_from_list") or
-        std.mem.eql(u8, attr, "commit_page") or std.mem.eql(u8, attr, "decommit_page") or std.mem.eql(u8, attr, "is_page_committed") or
-        std.mem.eql(u8, attr, "compress_idle_pages") or std.mem.eql(u8, attr, "sparse_stats") or std.mem.eql(u8, attr, "defragment") or
-        std.mem.eql(u8, attr, "free"))
-    {
+    if (ops.isBufferMethod(attr)) {
         buf.last_method = attr;
         return buf.asDynamic();
     }

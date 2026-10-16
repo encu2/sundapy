@@ -17,7 +17,7 @@ pub fn tryLowerBinaryIdiom(self: *Transpiler, node: *ast.Node) anyerror!bool {
     }
 
     if (isComparisonOp(b.op)) {
-        if (b.left.* == .binary and isComparisonOp(b.left.binary.op)) {
+        if (b.left.* == .binary and !b.left.binary.is_parenthesized and isComparisonOp(b.left.binary.op)) {
             return tryLowerChainedCmp(self, b);
         }
     }

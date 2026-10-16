@@ -28,86 +28,23 @@ pub fn parseIndex(self: *const GpuBuffer, index: Dynamic) !usize {
     return error.TypeError;
 }
 
-pub fn readCompressedItem(ci: *const gpu_types.CompressionInfo, idx: usize) !Dynamic {
-    const p = ci.raw_payload orelse return Dynamic.initFloat(0.0);
-    const scheme = ci.scheme;
-    if (std.mem.eql(u8, scheme, "fp8") or std.mem.eql(u8, scheme, "fp8_e4m3")) {
-        if (4 + idx < p.len) return Dynamic.initFloat(@floatCast(quant.fp8_e4m3_to_f32(p[4 + idx])));
-    } else if (std.mem.eql(u8, scheme, "fp8_e5m2")) {
-        if (4 + idx < p.len) return Dynamic.initFloat(@floatCast(quant.fp8_e5m2_to_f32(p[4 + idx])));
-    } else if (std.mem.eql(u8, scheme, "fp4") or std.mem.eql(u8, scheme, "fp4_e2m1")) {
-        const byte_idx = 4 + (idx / 2);
-        if (byte_idx < p.len) {
-            const b = p[byte_idx];
-            const nib: u4 = if ((idx % 2) == 0) @truncate(b >> 4) else @truncate(b & 0x0F);
-            return Dynamic.initFloat(@floatCast(quant.fp4_e2m1_to_f32(nib)));
-        }
-    } else if (std.mem.eql(u8, scheme, "bf16")) {
-        const off = 4 + idx * 2;
-        if (off + 2 <= p.len) {
-            const u = std.mem.readInt(u16, p[off..][0..2], .little);
-            return Dynamic.initFloat(@floatCast(quant.bf16_to_f32(u)));
-        }
-    } else if (std.mem.eql(u8, scheme, "fp16")) {
-        const off = 4 + idx * 2;
-        if (off + 2 <= p.len) {
-            const u = std.mem.readInt(u16, p[off..][0..2], .little);
-            return Dynamic.initFloat(@floatCast(quant.f16_to_f32(u)));
-        }
-    } else if (std.mem.eql(u8, scheme, "quant8") or std.mem.eql(u8, scheme, "int8")) {
-        if (p.len >= 12 and 12 + idx < p.len) {
-            const min_u = std.mem.readInt(u32, p[4..][0..4], .little);
-            const max_u = std.mem.readInt(u32, p[8..][0..4], .little);
-            const min_v: f32 = @bitCast(min_u);
-            const max_v: f32 = @bitCast(max_u);
-            const q = p[12 + idx];
-            const scale = (max_v - min_v) / 255.0;
-            return Dynamic.initFloat(@floatCast(min_v + @as(f32, @floatFromInt(q)) * scale));
-        }
-    } else if (std.mem.eql(u8, scheme, "quant4") or std.mem.eql(u8, scheme, "int4")) {
-        const byte_idx = 12 + (idx / 2);
-        if (p.len >= 12 and byte_idx < p.len) {
-            const min_u = std.mem.readInt(u32, p[4..][0..4], .little);
-            const max_u = std.mem.readInt(u32, p[8..][0..4], .little);
-            const min_v: f32 = @bitCast(min_u);
-            const max_v: f32 = @bitCast(max_u);
-            const b = p[byte_idx];
-            const q: u8 = if ((idx % 2) == 0) (b & 0x0F) else ((b >> 4) & 0x0F);
-            const scale = (max_v - min_v) / 15.0;
-            return Dynamic.initFloat(@floatCast(min_v + @as(f32, @floatFromInt(q)) * scale));
-        }
-    } else if (std.mem.eql(u8, scheme, "nvfp4")) {
-        const b_idx = idx / 16;
-        const in_b = idx % 16;
-        const blk_off = 6 + b_idx * 9;
-        if (blk_off + 9 <= p.len) {
-            const scale_fp8 = p[blk_off];
-            const scale = quant.fp8_e4m3_to_f32(scale_fp8);
-            const b = p[blk_off + 1 + (in_b / 2)];
-            const pair = quant.unpack_fp4_pair(b);
-            const val = if ((in_b % 2) == 0) pair[0] * scale else pair[1] * scale;
-            return Dynamic.initFloat(@floatCast(val));
-        }
-    } else if (std.mem.eql(u8, scheme, "compact")) {
-        if (p.len >= 12) {
-            const active_count: usize = std.mem.readInt(u32, p[4..8], .little);
-            const data_start: usize = 12;
-            const idx_start: usize = 12 + active_count * 4;
-            if (idx_start + active_count * 4 <= p.len) {
-                for (0..active_count) |i| {
-                    const orig_idx: usize = std.mem.readInt(u32, p[idx_start + i * 4 .. idx_start + (i + 1) * 4][0..4], .little);
-                    if (orig_idx == idx) {
-                        const u_v = std.mem.readInt(u32, p[data_start + i * 4 .. data_start + (i + 1) * 4][0..4], .little);
-                        const val: f32 = @bitCast(u_v);
-                        return Dynamic.initFloat(@floatCast(val));
-                    }
-                }
-            }
-        }
-        return Dynamic.initFloat(0.0);
+pub const readCompressedItem = @import("gpu_compress_read.zig").readCompressedItem;
+
+pub fn isBufferMethod(attr: []const u8) bool {
+    const methods = [_][]const u8{
+        "compress", "decompress", "compact", "uncompact", "spmv",
+        "stats", "get_stats", "to_raw_handle", "fill", "to_list",
+        "to_device", "to_host", "copy_from_list", "copy_to", "copy_from",
+        "commit_page", "decommit_page", "is_page_committed", "compress_idle_pages",
+        "sparse_stats", "free", "add_kernel", "add_edge", "add_dependency",
+        "instantiate", "launch", "benchmark", "destroy",
+    };
+    for (methods) |m| {
+        if (std.mem.eql(u8, attr, m)) return true;
     }
-    return Dynamic.initFloat(0.0);
+    return false;
 }
+
 
 pub fn getItem(self: *GpuBuffer, index: Dynamic) !Dynamic {
     if (self.is_sparse_vm and self.sparse_vm_ptr != null) {
@@ -236,7 +173,20 @@ pub fn copyFromList(self: *GpuBuffer, list_dyn: Dynamic) !void {
     self.toDevice();
 }
 
+fn parsePageIdx(args: []const Dynamic) !usize {
+    if (args.len >= 2 and args[0].value == .gpu_buffer_type and args[1].value == .i64_type)
+        return @intCast(@max(0, args[1].value.i64_type));
+    if (args.len > 0 and args[0].value == .i64_type)
+        return @intCast(@max(0, args[0].value.i64_type));
+    return error.TypeError;
+}
+
 pub fn callMethod(self: *GpuBuffer, alloc_mem: std.mem.Allocator, args: []const Dynamic) anyerror!Dynamic {
+    if (self.is_graph and self.graph_ptr != null) {
+        if (gpu_types.buffer_graph_call_fn) |gcfn| {
+            return gcfn(self.graph_ptr.?, self.last_method, alloc_mem, args);
+        }
+    }
     if (std.mem.eql(u8, self.last_method, "fill")) {
         var val: f32 = 0.0;
         const arg = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else Dynamic.initNone();
@@ -266,6 +216,24 @@ pub fn callMethod(self: *GpuBuffer, alloc_mem: std.mem.Allocator, args: []const 
         const list_arg = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else Dynamic.initNone();
         try self.copyFromList(list_arg);
         return Dynamic.initNone();
+    } else if (std.mem.eql(u8, self.last_method, "copy_to")) {
+        const dst_arg = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else return error.TypeError;
+        if (dst_arg.value != .gpu_buffer_type) return error.TypeError;
+        const dst_buf: *GpuBuffer = @ptrCast(@alignCast(dst_arg.value.gpu_buffer_type));
+        if (gpu_types.buffer_copy_fn) |cfn| {
+            _ = cfn(dst_buf, self);
+            return Dynamic.initNone();
+        }
+        return error.CopyFailed;
+    } else if (std.mem.eql(u8, self.last_method, "copy_from")) {
+        const src_arg = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else return error.TypeError;
+        if (src_arg.value != .gpu_buffer_type) return error.TypeError;
+        const src_buf: *GpuBuffer = @ptrCast(@alignCast(src_arg.value.gpu_buffer_type));
+        if (gpu_types.buffer_copy_fn) |cfn| {
+            _ = cfn(self, src_buf);
+            return Dynamic.initNone();
+        }
+        return error.CopyFailed;
     } else if (std.mem.eql(u8, self.last_method, "compress")) {
         var codec: []const u8 = "fpc";
         if (args.len >= 2 and args[0].value == .gpu_buffer_type and args[1].value == .str_type) {
@@ -314,39 +282,18 @@ pub fn callMethod(self: *GpuBuffer, alloc_mem: std.mem.Allocator, args: []const 
         return y_buf.asDynamic();
     } else if (std.mem.eql(u8, self.last_method, "commit_page")) {
         if (!self.is_sparse_vm or self.sparse_vm_ptr == null) return error.NotSparseBuffer;
-        const page_idx = if (args.len >= 2 and args[0].value == .gpu_buffer_type and args[1].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[1].value.i64_type)))
-        else if (args.len > 0 and args[0].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[0].value.i64_type)))
-        else
-            return error.TypeError;
-        if (gpu_types.buffer_sparse_commit_fn) |cfn| {
-            try cfn(self.sparse_vm_ptr.?, page_idx);
-        }
+        const page_idx = try parsePageIdx(args);
+        if (gpu_types.buffer_sparse_commit_fn) |cfn| try cfn(self.sparse_vm_ptr.?, page_idx);
         return Dynamic.initNone();
     } else if (std.mem.eql(u8, self.last_method, "decommit_page")) {
         if (!self.is_sparse_vm or self.sparse_vm_ptr == null) return error.NotSparseBuffer;
-        const page_idx = if (args.len >= 2 and args[0].value == .gpu_buffer_type and args[1].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[1].value.i64_type)))
-        else if (args.len > 0 and args[0].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[0].value.i64_type)))
-        else
-            return error.TypeError;
-        if (gpu_types.buffer_sparse_decommit_fn) |dfn| {
-            dfn(self.sparse_vm_ptr.?, page_idx);
-        }
+        const page_idx = try parsePageIdx(args);
+        if (gpu_types.buffer_sparse_decommit_fn) |dfn| dfn(self.sparse_vm_ptr.?, page_idx);
         return Dynamic.initNone();
     } else if (std.mem.eql(u8, self.last_method, "is_page_committed")) {
         if (!self.is_sparse_vm or self.sparse_vm_ptr == null) return error.NotSparseBuffer;
-        const page_idx = if (args.len >= 2 and args[0].value == .gpu_buffer_type and args[1].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[1].value.i64_type)))
-        else if (args.len > 0 and args[0].value == .i64_type)
-            @as(usize, @intCast(@max(0, args[0].value.i64_type)))
-        else
-            return error.TypeError;
-        if (gpu_types.buffer_sparse_is_committed_fn) |icfn| {
-            return Dynamic.initBool(icfn(self.sparse_vm_ptr.?, page_idx));
-        }
+        const page_idx = try parsePageIdx(args);
+        if (gpu_types.buffer_sparse_is_committed_fn) |icfn| return Dynamic.initBool(icfn(self.sparse_vm_ptr.?, page_idx));
         return Dynamic.initBool(false);
     } else if (std.mem.eql(u8, self.last_method, "compress_idle_pages")) {
         if (!self.is_sparse_vm or self.sparse_vm_ptr == null) return error.NotSparseBuffer;

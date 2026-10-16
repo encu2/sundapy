@@ -23,53 +23,7 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
             try self.transpileExpr(aw.value);
             try self.emit(").awaitResult()", .{});
         },
-        .fstring => |f| {
-            if (std.mem.indexOfScalar(u8, f.value, '{') == null) {
-                try self.emit("Dynamic{{ .value = .{{ .str_type = \"{s}\" }} }}", .{f.value});
-                return;
-            }
-            self.label_counter += 1;
-            const lid = self.label_counter;
-            try self.emit("(blk_{d}: {{\n", .{lid});
-            try self.emit("    const _parts_{d} = [_][]const u8{{\n", .{lid});
-            
-            var i: usize = 0;
-            var start_idx: usize = 0;
-            while (i < f.value.len) {
-                if (f.value[i] == '{') {
-                    if (i > start_idx) {
-                        try self.emit("        \"{s}\",\n", .{f.value[start_idx..i]});
-                    }
-                    i += 1;
-                    const var_start = i;
-                    while (i < f.value.len and f.value[i] != '}') : (i += 1) {}
-                    if (i < f.value.len and f.value[i] == '}') {
-                        const var_name = f.value[var_start..i];
-                        var actual_var = var_name;
-                        if (std.mem.indexOfScalar(u8, var_name, ':')) |colon_idx| {
-                            actual_var = var_name[0..colon_idx];
-                        }
-                        var sub_lexer = @import("../../lexer/lexer.zig").Lexer.init(self.allocator, actual_var);
-                        var sub_parser = @import("../../parser/parser.zig").Parser.init(self.allocator, &sub_lexer);
-                        if (sub_parser.parseExpr(.none)) |expr_node| {
-                            try self.emit("        dynamic.stringifyStr(alloc, ", .{});
-                            try self.transpileExpr(expr_node);
-                            try self.emit("),\n", .{});
-                        } else |_| {
-                            try self.emit("        dynamic.stringifyStr(alloc, {s}),\n", .{actual_var});
-                        }
-                    }
-                    start_idx = i + 1;
-                }
-                i += 1;
-            }
-            if (start_idx < f.value.len) {
-                try self.emit("        \"{s}\",\n", .{f.value[start_idx..]});
-            }
-            try self.emit("    }};\n", .{});
-            try self.emit("    break :blk_{d} Dynamic{{ .value = .{{ .str_type = std.mem.concat(alloc, u8, &_parts_{d}) catch \"\" }} }};\n", .{lid, lid});
-            try self.emit("}})", .{});
-        },
+        .fstring => |f| try @import("expr_fstring.zig").transpileFString(self, f, false),
         .assign_expr => |a| {
                 self.label_counter += 1;
                 const lid = self.label_counter;
@@ -92,7 +46,11 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 } else if (std.mem.eql(u8, i.name, "None")) {
                     try self.emit("dynamic.None", .{});
                 } else if (std.mem.eql(u8, i.name, "__name__")) {
-                    try self.emit("(Dynamic{{ .value = .{{ .str_type = \"__main__\" }} }})", .{});
+                    if (self.is_root) {
+                        try self.emit("(Dynamic{{ .value = .{{ .str_type = \"__main__\" }} }})", .{});
+                    } else {
+                        try self.emit("(Dynamic{{ .value = .{{ .str_type = \"module\" }} }})", .{});
+                    }
                 } else {
                     if (self.scoped_aliases.get(i.name)) |alias| {
                         try self.emit("{s}", .{alias});
@@ -119,7 +77,7 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                     if (self.is_strict or self.escape_analyzer.variables.contains(i.name) or is_module) {
                         try self.emit("{s}", .{escaped});
                     } else {
-                        try self.emit("(if (@typeInfo(@TypeOf({s})) == .@\"fn\") dynamic.toDynamicFunc({s}) else {s})", .{escaped, escaped, escaped});
+                        try self.emit("(if (comptime @TypeOf({s}) == type or (@typeInfo(@TypeOf({s})) == .pointer and @typeInfo(@typeInfo(@TypeOf({s})).pointer.child) == .@\"struct\" and @typeInfo(@TypeOf({s})).pointer.child != Dynamic) or (@typeInfo(@TypeOf({s})) == .@\"struct\" and !@typeInfo(@TypeOf({s})).@\"struct\".is_tuple and @TypeOf({s}) != Dynamic)) {s} else dynamic.Dynamic.fromAny({s}))", .{ escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped, escaped });
                     }
                 }
 
@@ -194,7 +152,16 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 const lid = self.label_counter;
                 
                 if (d.keys.items.len > 0 and d.values.items.len == 0) {
-                    try self.emit("Dynamic.initSet(alloc)", .{});
+                    try self.emit("Dynamic{{ .value = .{{ .set_type = blk_{d}: {{\n", .{lid});
+                    try self.emit("    var _s_{d} = @import(\"datatype/dynamic.zig\").set_type.Set.init(alloc);\n", .{lid});
+                    try self.emit("    _ = &_s_{d};\n", .{lid});
+                    for (d.keys.items) |k| {
+                        try self.emit("    _s_{d}.add(alloc, dynamic.Dynamic.fromAny(", .{lid});
+                        try self.transpileExpr(k);
+                        try self.emit(")) catch unreachable;\n", .{});
+                    }
+                    try self.emit("    break :blk_{d} _s_{d};\n", .{lid, lid});
+                    try self.emit("}} }} }}", .{});
                 } else {
                     try self.emit("Dynamic{{ .value = .{{ .dict_type = blk_{d}: {{\n", .{lid});
                     try self.emit("    var _d_{d} = @import(\"datatype/dynamic.zig\").mapping.Dict.init(alloc) catch unreachable;\n", .{lid});

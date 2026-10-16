@@ -16,6 +16,8 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("false", .{});
             } else if (std.mem.eql(u8, i.name, "None")) {
                 try self.emit("null", .{});
+            } else if (std.mem.eql(u8, i.name, "__name__")) {
+                try self.emit("__name__", .{});
             } else {
                 if (self.scoped_aliases.get(i.name)) |alias| {
                     try self.emit("{s}", .{alias});
@@ -101,16 +103,16 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("    }}\n", .{});
                 try self.emit("    break :blk_{d} !_found;\n", .{lid});
                 try self.emit("}})", .{});
-            } else if (std.mem.eql(u8, b.op, "is")) {
-                try self.emit("(", .{});
+            } else if (std.mem.eql(u8, b.op, "is") or std.mem.eql(u8, b.op, "==")) {
+                try self.emit("_sundapy_eq(", .{});
                 try self.transpileExprStrict(b.left);
-                try self.emit(" == ", .{});
+                try self.emit(", ", .{});
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
-            } else if (std.mem.eql(u8, b.op, "is_not")) {
-                try self.emit("(", .{});
+            } else if (std.mem.eql(u8, b.op, "is_not") or std.mem.eql(u8, b.op, "!=")) {
+                try self.emit("_sundapy_ne(", .{});
                 try self.transpileExprStrict(b.left);
-                try self.emit(" != ", .{});
+                try self.emit(", ", .{});
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
             } else {
@@ -249,6 +251,7 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             const escaped = @import("expr_string_tools.zig").escapeForZig(self.allocator, dedented);
             try self.emit("\"{s}\"", .{escaped});
         },
+        .fstring => |f| try @import("expr_fstring.zig").transpileFString(self, f, true),
         .tstring => |t| {
             const escaped = @import("expr_string_tools.zig").escapeForZig(self.allocator, t.value);
             try self.emit(".{{ .template = \"{s}\" }}", .{escaped});

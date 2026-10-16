@@ -29,7 +29,7 @@ pub const Node = union(enum) {
     string: []const u8,
     identifier: struct { name: []const u8, local_idx: usize = 0xFFFF },
     unary: struct { op: []const u8, right: *Node },
-    binary: struct { op: []const u8, left: *Node, right: *Node },
+    binary: struct { op: []const u8, left: *Node, right: *Node, is_parenthesized: bool = false },
     call: struct { callee: *Node, args: std.ArrayList(*Node), kwargs: std.ArrayList(KeywordArg) },
     assign: struct { target: []const u8, type_ann: ?[]const u8, value: *Node, local_idx: usize = 0xFFFF },
     const_assign: struct { target: []const u8, type_ann: ?[]const u8, value: *Node, local_idx: usize = 0xFFFF },

@@ -154,11 +154,30 @@ pub fn fetchAndInstallPackage(
 }
 
 pub fn parseDependencySpec(allocator: std.mem.Allocator, spec: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, spec, "extra ==") != null) return null;
+    if (std.mem.indexOf(u8, spec, "extra") != null) return null;
     if (env_mod.parseRequirementLine(spec)) |pkg_name| {
         return allocator.dupe(u8, pkg_name) catch null;
     }
     return null;
+}
+
+fn containsTag(multi_tag: []const u8, target: []const u8) bool {
+    var it = std.mem.splitScalar(u8, multi_tag, '.');
+    while (it.next()) |part| {
+        if (std.mem.eql(u8, part, target)) return true;
+    }
+    return false;
+}
+
+fn matchesAbi3PyTag(py_tag: []const u8, target_minor: u32) bool {
+    var it = std.mem.splitScalar(u8, py_tag, '.');
+    while (it.next()) |part| {
+        if (std.mem.startsWith(u8, part, "cp3")) {
+            const ver_num = std.fmt.parseInt(u32, part[3..], 10) catch continue;
+            if (ver_num <= target_minor) return true;
+        }
+    }
+    return false;
 }
 
 pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
@@ -209,10 +228,13 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
     }
 
     const is_universal = std.mem.eql(u8, plat_tag, "any");
-    const is_linux_arch = std.mem.indexOf(u8, plat_tag, env.arch) != null and
+    const is_linux_arch = std.mem.eql(u8, env.os, "linux") and std.mem.indexOf(u8, plat_tag, env.arch) != null and
         (std.mem.indexOf(u8, plat_tag, "manylinux") != null or std.mem.indexOf(u8, plat_tag, "linux") != null);
+    const is_mac_arch = (std.mem.eql(u8, env.os, "macosx") or std.mem.eql(u8, env.os, "darwin")) and
+        (std.mem.indexOf(u8, plat_tag, "macosx") != null or std.mem.indexOf(u8, plat_tag, "darwin") != null) and
+        (std.mem.indexOf(u8, plat_tag, env.arch) != null or std.mem.indexOf(u8, plat_tag, "universal2") != null);
 
-    if (!is_universal and !is_linux_arch) {
+    if (!is_universal and !is_linux_arch and !is_mac_arch) {
         return 0;
     }
 
@@ -221,24 +243,21 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
     if (is_universal) {
         if (std.mem.indexOf(u8, py_tag, "py3") != null or
             std.mem.indexOf(u8, py_tag, "py2.py3") != null or
-            std.mem.eql(u8, py_tag, env.py_tag))
+            std.mem.eql(u8, py_tag, env.py_tag) or
+            containsTag(py_tag, env.py_tag))
         {
             base_score = 500;
         } else {
             return 0;
         }
     } else {
-        if (std.mem.eql(u8, py_tag, env.py_tag) and std.mem.eql(u8, abi_tag, env.abi_tag)) {
+        if ((std.mem.eql(u8, py_tag, env.py_tag) or containsTag(py_tag, env.py_tag)) and
+            (std.mem.eql(u8, abi_tag, env.abi_tag) or containsTag(abi_tag, env.abi_tag)))
+        {
             base_score = if (std.mem.indexOf(u8, plat_tag, "manylinux") != null) 1000 else 900;
-        } else if (std.mem.eql(u8, abi_tag, "abi3")) {
-            if (std.mem.startsWith(u8, py_tag, "cp3")) {
-                const ver_num = std.fmt.parseInt(u32, py_tag[3..], 10) catch 999;
-                const target_minor = env.py_ver_num % 100;
-                if (ver_num <= target_minor) {
-                    base_score = if (std.mem.indexOf(u8, plat_tag, "manylinux") != null) 800 else 700;
-                } else {
-                    return 0;
-                }
+        } else if (std.mem.eql(u8, abi_tag, "abi3") or containsTag(abi_tag, "abi3")) {
+            if (matchesAbi3PyTag(py_tag, env.py_ver_num % 100)) {
+                base_score = if (std.mem.indexOf(u8, plat_tag, "manylinux") != null) 800 else 700;
             } else {
                 return 0;
             }
@@ -247,12 +266,14 @@ pub fn scoreWheel(filename: []const u8, env: TargetEnv) u32 {
         }
     }
 
-    if (std.mem.indexOf(u8, plat_tag, "manylinux_2_28") != null) {
-        base_score += 28;
-    } else if (std.mem.indexOf(u8, plat_tag, "manylinux_2_27") != null) {
-        base_score += 27;
-    } else if (std.mem.indexOf(u8, plat_tag, "manylinux_2_17") != null) {
-        base_score += 17;
+    if (std.mem.indexOf(u8, plat_tag, "manylinux_2_")) |idx| {
+        const sub = plat_tag[idx + 12 ..];
+        var end: usize = 0;
+        while (end < sub.len and std.ascii.isDigit(sub[end])) : (end += 1) {}
+        if (end > 0) {
+            const ver = std.fmt.parseInt(u32, sub[0..end], 10) catch 0;
+            base_score += ver;
+        }
     } else if (std.mem.indexOf(u8, plat_tag, "manylinux2014") != null) {
         base_score += 14;
     } else if (std.mem.indexOf(u8, plat_tag, "manylinux2010") != null) {

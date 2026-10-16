@@ -86,20 +86,7 @@ pub fn sparse_page_map(buf_dyn: Dynamic) anyerror!Dynamic {
     if (!buf.is_sparse_vm or buf.sparse_vm_ptr == null) return error.NotSparseBuffer;
 
     const svm: *sparse_vm.SparseVirtualBuffer = @ptrCast(@alignCast(buf.sparse_vm_ptr.?));
-    var list = std.ArrayList(Dynamic).empty;
-
-    for (svm.entries, 0..) |entry, idx| {
-        if (entry.is_committed or entry.is_compressed) {
-            var item = Dynamic.initDict(std.heap.c_allocator);
-            try item.value.dict_type.put(Dynamic.initStr("page_idx"), Dynamic.initInt(@intCast(idx)));
-            try item.value.dict_type.put(Dynamic.initStr("is_committed"), Dynamic.initBool(entry.is_committed));
-            try item.value.dict_type.put(Dynamic.initStr("is_compressed"), Dynamic.initBool(entry.is_compressed));
-            try item.value.dict_type.put(Dynamic.initStr("dev_ptr"), Dynamic.initInt(@intCast(entry.physical_dev_ptr)));
-            try item.value.dict_type.put(Dynamic.initStr("access_count"), Dynamic.initInt(@intCast(entry.access_count)));
-            try list.append(std.heap.c_allocator, item);
-        }
-    }
-    return Dynamic.initList(list);
+    return svm.getPageMap(std.heap.c_allocator);
 }
 
 pub fn commit_virtual_range(buf_dyn: Dynamic, start_dyn: Dynamic, count_dyn: Dynamic) anyerror!Dynamic {

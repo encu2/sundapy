@@ -27,9 +27,23 @@ pub fn builtin___import__(alloc: std.mem.Allocator, args: []const Dynamic) Dynam
     unreachable;
 }
 pub fn builtin_zip(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
-    _ = alloc; _ = args;
-    std.debug.panic("NotImplementedError: zip() stub\n", .{});
-    unreachable;
+    var result_list = std.ArrayList(Dynamic).empty;
+    if (args.len == 0) return Dynamic.initList(result_list);
+    var min_len: usize = args[0].len();
+    for (args[1..]) |arg| {
+        const l = arg.len();
+        if (l < min_len) min_len = l;
+    }
+    var i: usize = 0;
+    while (i < min_len) : (i += 1) {
+        const row = alloc.alloc(Dynamic, args.len) catch unreachable;
+        for (args, 0..) |arg, col| {
+            row[col] = arg.getItem(i);
+        }
+        const tuple = @import("../sequence.zig").Tuple.init(alloc, row) catch unreachable;
+        result_list.append(alloc, Dynamic{ .value = .{ .tuple_type = tuple } }) catch unreachable;
+    }
+    return Dynamic.initList(result_list);
 }
 pub fn builtin_format(self: Dynamic, format_spec: Dynamic) Dynamic {
     _ = format_spec;

@@ -379,6 +379,7 @@ pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
 pub fn __sundapy_module_init() !void {
     driver.initGpuDriver(dispatch.launchInternal);
     @import("gpu_sparse_vm.zig").initSparseVmBridge();
+    @import("gpu_graph.zig").initGraphBridge();
     gpu_types.buffer_compress_hook = @import("gpu_compress.zig").bufferCompressHook;
     gpu_types.buffer_decompress_hook = @import("gpu_compress.zig").bufferDecompressHook;
     gpu_types.budget_register_fn = @import("gpu_budget.zig").registerBuffer;

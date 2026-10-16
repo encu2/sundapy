@@ -308,7 +308,7 @@ pub fn transpileWithStmt(self: *Transpiler, w: anytype, declared_vars: *std.Stri
         try self.emit("        if (comptime T_target == dynamic.Dynamic) {{\n", .{});
         try self.emit("            var _args_arr = [_]dynamic.Dynamic{{dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone()}};\n", .{});
         try self.emit("            break :blk_{d} {s}.builtin_getattr(\"__aexit__\").builtin_call(alloc, &_args_arr, null) catch dynamic.None;\n", .{self.indent_level, ctx_var});
-        try self.emit("        }} else if (@hasDecl(T_target, \"__aexit__\")) {{\n", .{});
+        try self.emit("        }} else if (comptime (@typeInfo(T_target) == .@\"struct\" or @typeInfo(T_target) == .@\"union\") and @hasDecl(T_target, \"__aexit__\")) {{\n", .{});
         try self.emit("            break :blk_{d} {s}.__aexit__(dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone()) catch dynamic.None;\n", .{self.indent_level, ctx_var});
         try self.emit("        }} else {{\n", .{});
         try self.emit("            break :blk_{d} dynamic.None;\n", .{self.indent_level});
@@ -320,7 +320,7 @@ pub fn transpileWithStmt(self: *Transpiler, w: anytype, declared_vars: *std.Stri
         try self.emit("        if (comptime T_target == dynamic.Dynamic) {{\n", .{});
         try self.emit("            var _args_arr = [_]dynamic.Dynamic{{dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone()}};\n", .{});
         try self.emit("            break :blk_{d} {s}.builtin_getattr(\"__exit__\").builtin_call(alloc, &_args_arr, null) catch dynamic.None;\n", .{self.indent_level, ctx_var});
-        try self.emit("        }} else if (@hasDecl(T_target, \"__exit__\")) {{\n", .{});
+        try self.emit("        }} else if (comptime (@typeInfo(T_target) == .@\"struct\" or @typeInfo(T_target) == .@\"union\") and @hasDecl(T_target, \"__exit__\")) {{\n", .{});
         try self.emit("            break :blk_{d} {s}.__exit__(dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone(), dynamic.Dynamic.initNone()) catch dynamic.None;\n", .{self.indent_level, ctx_var});
         try self.emit("        }} else {{\n", .{});
         try self.emit("            break :blk_{d} dynamic.None;\n", .{self.indent_level});

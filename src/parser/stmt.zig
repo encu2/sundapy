@@ -207,14 +207,24 @@ const TokenType = lexer.TokenType;
             return node;
         }
         if (self.match(.KeywordFrom)) {
-            const mod_ptr = self.current.lexeme.ptr;
-            var mod_len = self.current.lexeme.len;
-            try self.expect(.Identifier);
-            while (self.match(.Dot)) {
-                mod_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(mod_ptr)) + self.current.lexeme.len;
+            var mod: []const u8 = undefined;
+            if (self.current.type == .String or self.current.type == .DString or self.current.type == .TString) {
+                var raw = self.current.lexeme;
+                if (raw.len >= 2 and (raw[0] == '"' or raw[0] == '\'')) {
+                    raw = raw[1 .. raw.len - 1];
+                }
+                mod = raw;
+                self.advance();
+            } else {
+                const mod_ptr = self.current.lexeme.ptr;
+                var mod_len = self.current.lexeme.len;
                 try self.expect(.Identifier);
+                while (self.match(.Dot)) {
+                    mod_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(mod_ptr)) + self.current.lexeme.len;
+                    try self.expect(.Identifier);
+                }
+                mod = mod_ptr[0..mod_len];
             }
-            const mod = mod_ptr[0..mod_len];
             
             try self.expect(.KeywordImport);
             const name = self.current.lexeme;

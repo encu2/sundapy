@@ -40,12 +40,18 @@ pub fn printValue(self: Dynamic) void {
             while (it.next()) |entry| {
                 if (!first) std.debug.print(", ", .{});
                 first = false;
-                std.debug.print("\"{s}\"", .{entry.key_ptr.*});
+                const k = entry.value_ptr.key;
+                if (k.value == .str_type) {
+                    std.debug.print("'{s}'", .{k.value.str_type});
+                } else {
+                    printValue(k);
+                }
                 std.debug.print(": ", .{});
-                printValue(entry.value_ptr.*);
+                printValue(entry.value_ptr.value);
             }
             std.debug.print("}}", .{});
         },
+
         .set_type => |s| {
             std.debug.print("{{", .{});
             for (s.items.items, 0..) |item, idx| {
