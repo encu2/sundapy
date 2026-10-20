@@ -16,7 +16,11 @@ pub fn transpileGetattr(self: *Transpiler, g: anytype) anyerror!void {
             if (self.is_strict) {
                 try self.emit("{s}.{s}", .{esc_id, g.attr});
             } else {
-                try self.emit("(if (comptime @TypeOf({s}.{s}) == type) {s}.{s} else Dynamic.fromAny({s}.{s}))", .{esc_id, g.attr, esc_id, g.attr, esc_id, g.attr});
+                try self.emit("(if (comptime @hasDecl({s}, \"{s}\")) (if (comptime @TypeOf({s}.{s}) == type) {s}.{s} else Dynamic.fromAny({s}.{s})) else if (comptime @hasDecl({s}, \"builtin_getattr\")) {s}.builtin_getattr(\"{s}\") else {s}.{s})", .{
+                    esc_id, g.attr, esc_id, g.attr, esc_id, g.attr, esc_id, g.attr,
+                    esc_id, esc_id, g.attr,
+                    esc_id, g.attr,
+                });
             }
             return;
         }

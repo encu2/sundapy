@@ -39,18 +39,21 @@ pub fn main(ctx: std.process.Init) !void {
             is_debug = true;
         } else if (std.mem.eql(u8, arg, "--fast") or std.mem.eql(u8, arg, "--release-fast") or std.mem.eql(u8, arg, "-O3")) {
             is_release_fast = true;
-        } else if (std.mem.eql(u8, arg, "--build")) {
+        } else if (std.mem.eql(u8, arg, "--build") or std.mem.eql(u8, arg, "build")) {
             is_build_mode = true;
-        } else if (std.mem.eql(u8, arg, "--outname")) {
+        } else if (std.mem.eql(u8, arg, "--outname") or std.mem.eql(u8, arg, "-o")) {
             if (args_iter.next()) |name_arg| {
                 out_name = name_arg;
                 is_build_mode = true;
             } else {
-                std.debug.print("Error: --outname requires an argument\n", .{});
+                std.debug.print("Error: -o/--outname requires an argument\n", .{});
                 std.process.exit(1);
             }
         } else if (std.mem.startsWith(u8, arg, "--outname=")) {
             out_name = arg["--outname=".len..];
+            is_build_mode = true;
+        } else if (std.mem.startsWith(u8, arg, "-o=")) {
+            out_name = arg["-o=".len..];
             is_build_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-panic")) {
             is_no_panic = true;
@@ -90,6 +93,32 @@ pub fn main(ctx: std.process.Init) !void {
         const sundafetch_bin = builder.getSundafetchPath(allocator, io);
         var fetch_cmd = std.ArrayList([]const u8).empty;
         try fetch_cmd.append(allocator, sundafetch_bin);
+
+        if (is_build_mode) {
+            var has_build = false;
+            for (fetch_args.items) |fa| {
+                if (std.mem.eql(u8, fa, "--build") or std.mem.eql(u8, fa, "build") or std.mem.eql(u8, fa, "-b")) {
+                    has_build = true;
+                    break;
+                }
+            }
+            if (!has_build) {
+                try fetch_cmd.append(allocator, "--build");
+            }
+        }
+        if (out_name) |oname| {
+            var has_out = false;
+            for (fetch_args.items) |fa| {
+                if (std.mem.eql(u8, fa, "-o") or std.mem.eql(u8, fa, "--outname") or std.mem.startsWith(u8, fa, "-o=") or std.mem.startsWith(u8, fa, "--outname=")) {
+                    has_out = true;
+                    break;
+                }
+            }
+            if (!has_out) {
+                try fetch_cmd.append(allocator, "-o");
+                try fetch_cmd.append(allocator, oname);
+            }
+        }
         try fetch_cmd.appendSlice(allocator, fetch_args.items);
 
         std.debug.print("Fetching packages via sundafetch...\n", .{});
@@ -204,6 +233,10 @@ pub fn main(ctx: std.process.Init) !void {
         const dest_binary = out_name orelse stem;
         const dest_path = try std.fmt.allocPrint(allocator, "{s}", .{dest_binary});
         defer allocator.free(dest_path);
+
+        if (std.fs.path.dirname(dest_path)) |pdir| {
+            cwd.createDirPath(io, pdir) catch {};
+        }
 
         const cp_res = try std.process.run(allocator, io, .{
             .argv = &[_][]const u8{ "cp", cached_bin_path, dest_path },

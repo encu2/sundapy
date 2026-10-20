@@ -63,7 +63,10 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
     try self.emit("(blk_{d}: {{\n", .{lid});
     try self.emit("    const _callee = ", .{});
     if (c.callee.* == .identifier) {
+        const callee_name = c.callee.identifier.name;
+        try self.emit("(if (comptime @hasDecl(@This(), \"_sundapy_is_abi_{s}\") and @field(@This(), \"_sundapy_is_abi_{s}\")) @field(@This(), \"{s}_dyn\") else ", .{ callee_name, callee_name, callee_name });
         try self.transpileExprStrict(c.callee);
+        try self.emit(")", .{});
     } else if (c.callee.* == .getattr and c.callee.getattr.target.* == .identifier) {
         const root = c.callee.getattr.target.identifier.name;
         var is_mod = self.module_aliases.get(root) != null;
@@ -116,7 +119,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
         try self.emit("        break :blk_{d} _callee.builtin_call(alloc, &_args_arr, null);\n", .{lid});
     }
 
-    try self.emit("    }} else if (T_callee == type) {{\n", .{});
+    try self.emit("    }} else if (T_callee == type and comptime (@typeInfo(_callee) == .@\"struct\" or @typeInfo(_callee) == .@\"union\" or @typeInfo(_callee) == .@\"enum\" or @typeInfo(_callee) == .@\"opaque\")) {{\n", .{});
     try self.emit("        if (comptime @hasDecl(_callee, \"init\")) {{\n", .{});
     try self.emit("            const _ifn_{d} = _callee.init;\n", .{lid});
     if (c.args.items.len > 0) {

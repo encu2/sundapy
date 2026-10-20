@@ -25,14 +25,15 @@ pub fn printHelp() void {
         \\
         \\Options:
         \\  -h, --help              Show this help message and exit
-        \\  --build                 Build a standalone executable instead of running directly
-        \\  --outname <name>        Specify custom output binary name (implies --build)
+        \\  --build, build          Build a standalone executable instead of running directly
+        \\  -o, --outname <name>    Specify custom output binary name (implies --build)
         \\  --fast, --release-fast  Compile with maximum optimizations (ReleaseFast / -O3)
         \\  --debug                 Compile with runtime safety checks and debug info (ReleaseSafe)
         \\  -y                      Bypass hash cache and force full recompilation
         \\  --no-panic              Disable crash panic logs
         \\
         \\Commands:
+        \\  build <script.py>       Build a standalone executable
         \\  init                    Initialize a new SundaPy project with default hierarchy & VSCode helper
         \\  fetch <pkg>             Download and install a package via sundafetch into .cache/pyLibrary
         \\
@@ -40,8 +41,8 @@ pub fn printHelp() void {
         \\  sundapy init
         \\  sundapy main.py
         \\  sundapy --fast main.py
-        \\  sundapy --build --outname my_binary main.py
-        \\  sundapy fetch requests
+        \\  sundapy build main.py -o my_binary
+        \\  sundapy fetch --build requests
         \\
     , .{});
 }

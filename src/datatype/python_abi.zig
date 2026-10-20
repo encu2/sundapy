@@ -21,9 +21,54 @@ pub const sundapyBridge = struct {
                 \\import asyncio
                 \\import inspect
                 \\
-                \\py_lib = os.path.abspath(".cache/pyLibrary")
-                \\if py_lib not in sys.path:
-                \\    sys.path.insert(0, py_lib)
+                \\if not hasattr(sys, "argv") or len(sys.argv) == 0 or sys.argv == [""]:
+                \\    try:
+                \\        with open("/proc/self/cmdline", "rb") as _f:
+                \\            _raw = _f.read()
+                \\            if _raw.endswith(b"\x00"):
+                \\                _raw = _raw[:-1]
+                \\            _raw_cmd = _raw.split(b"\x00")
+                \\            sys.argv = [a.decode("utf-8", "surrogateescape") for a in _raw_cmd]
+                \\    except Exception:
+                \\        pass
+                \\    if not hasattr(sys, "argv") or len(sys.argv) == 0:
+                \\        sys.argv = [""]
+                \\
+                \\_seen_pylib = set()
+                \\def _add_pylib(p):
+                \\    if p and p not in _seen_pylib and os.path.isdir(p):
+                \\        _seen_pylib.add(p)
+                \\        if p not in sys.path:
+                \\            sys.path.insert(0, p)
+                \\
+                \\if "SUNDAPY_PYLIB" in os.environ:
+                \\    _add_pylib(os.environ["SUNDAPY_PYLIB"])
+                \\
+                \\try:
+                \\    _exe = os.path.realpath("/proc/self/exe")
+                \\    _d = os.path.dirname(_exe)
+                \\    for _ in range(8):
+                \\        _add_pylib(os.path.join(_d, ".cache", "pyLibrary"))
+                \\        _add_pylib(os.path.join(_d, "pyLibrary"))
+                \\        _parent = os.path.dirname(_d)
+                \\        if _parent == _d:
+                \\            break
+                \\        _d = _parent
+                \\except Exception:
+                \\    pass
+                \\
+                \\try:
+                \\    _cwd = os.getcwd()
+                \\    _d = _cwd
+                \\    for _ in range(8):
+                \\        _add_pylib(os.path.join(_d, ".cache", "pyLibrary"))
+                \\        _add_pylib(os.path.join(_d, "pyLibrary"))
+                \\        _parent = os.path.dirname(_d)
+                \\        if _parent == _d:
+                \\            break
+                \\        _d = _parent
+                \\except Exception:
+                \\    pass
                 \\
                 \\user_site = os.path.expanduser("~/.local/lib/python3.14/site-packages")
                 \\if os.path.exists(user_site) and user_site not in sys.path:

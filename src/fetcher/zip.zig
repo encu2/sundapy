@@ -124,8 +124,11 @@ pub fn checkExtractedHasSo(allocator: std.mem.Allocator, io: std.Io, base_dir: [
                         defer sub.close(io);
                         if (sub.readFileAlloc(io, "RECORD", allocator, @enumFromInt(2 * 1024 * 1024))) |record_content| {
                             defer allocator.free(record_content);
-                            if (std.mem.indexOf(u8, record_content, ".so") != null or
-                                std.mem.indexOf(u8, record_content, ".pyd") != null)
+                            if (std.mem.indexOf(u8, record_content, ".so,") != null or
+                                std.mem.indexOf(u8, record_content, ".so\n") != null or
+                                std.mem.indexOf(u8, record_content, ".so\r") != null or
+                                std.mem.indexOf(u8, record_content, ".pyd,") != null or
+                                std.mem.indexOf(u8, record_content, ".pyd\n") != null)
                             {
                                 return true;
                             }

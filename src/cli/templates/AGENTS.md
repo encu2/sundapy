@@ -99,6 +99,15 @@ sundafetch -r requirements.txt
 # Or passing requirements file directly:
 sundafetch requirements.txt
 
+# Fetch or install, then immediately build into a standalone binary:
+sundafetch --build yt-dlp
+# Or with a custom output binary name:
+sundafetch -b yt-dlp -o yt-dlp-bin
+# Or build a cloned local repository / directory:
+sundafetch --build ./path/to/repo -o my-cli
+# Or in the current project directory (auto-detects entrypoints):
+sundafetch --build
+
 # Help
 sundafetch --help
 ```
@@ -322,7 +331,10 @@ src/
 │   ├── env.zig                           # Environment detection (Python version, ABI tags, OS, Arch)
 │   ├── installer.zig                     # PyPI JSON API client, wheel resolver, transitive dependencies
 │   ├── types.zig                         # Target environment & package metadata structures
-│   └── zip.zig                           # Pure Zig streaming ZIP/Deflate archive decompressor
+│   ├── zip.zig                           # Pure Zig streaming ZIP/Deflate archive decompressor
+│   ├── detect_dist.zig                   # Dist-info & egg-info console_scripts entry point parser
+│   ├── detect_entry.zig                  # Project entrypoint detection (pyproject.toml, setup.py, __main__.py)
+│   └── build_exec.zig                    # Entrypoint wrapper generator & compiler invocation
 │
 ├── core/                                 # Compiler Core State & Orchestration
 │   ├── ast.zig                           # Unified Abstract Syntax Tree (AST) node definitions
@@ -486,11 +498,15 @@ sundapy --build main.py
 sundapy --outname my_app main.py
 # Compiles and generates standalone binary './my_app'.
 
-# 8. Dependency Management via sundafetch
+# 8. Dependency Management & Binary Packaging via sundafetch
 sundapy fetch <package_name>
 # Or standalone:
 sundafetch <package_name>
 sundafetch -r requirements.txt
+# Fetch and build directly into a standalone binary:
+sundafetch --build <package_or_repo> -o <bin_name>
+# Or via compiler driver:
+sundapy fetch --build <package_or_repo> -o <bin_name>
 ```
 
 ---

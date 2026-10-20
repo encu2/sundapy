@@ -9,11 +9,14 @@ pub fn printHelp() void {
         \\
         \\Usage:
         \\  sundafetch <package> [<package2> ...]
-        \\  sundafetch <path/to/project>
+        \\  sundafetch --build <package>
+        \\  sundafetch --build <path/to/project> [-o <outname>]
         \\  sundafetch -r <requirements.txt>
         \\  sundafetch <requirements.txt>
         \\
         \\Options:
+        \\  -b, --build               Build an executable binary from the package/project entrypoint
+        \\  -o, --outname <name>      Specify custom output binary name (implies --build)
         \\  -r, --requirement <file>  Install from the given requirements file
         \\  -e, --editable <path>     Install local project from directory path
         \\  -h, --help                Show this help message and exit
@@ -34,7 +37,7 @@ pub fn canonicalMatch(entry_stem: []const u8, norm_pkg: []const u8) bool {
     }
     if (entry_stem.len > norm_pkg.len) {
         const next_c = entry_stem[norm_pkg.len];
-        if (next_c != '-' and next_c != '_') return false;
+        if (next_c != '-' and next_c != '.') return false;
     }
     return true;
 }
@@ -230,29 +233,38 @@ pub fn detectTargetEnv(allocator: std.mem.Allocator, io: std.Io) TargetEnv {
     return default_env;
 }
 
-pub fn isLocalProjectPath(io: std.Io, path: []const u8) bool {
+pub fn isLocalDirectory(io: std.Io, path: []const u8) bool {
     const trimmed = std.mem.trim(u8, path, " \t\r\n");
     if (trimmed.len == 0) return false;
-    if (std.mem.eql(u8, trimmed, ".") or std.mem.eql(u8, trimmed, "..")) return true;
-    if (std.mem.startsWith(u8, trimmed, "./") or
-        std.mem.startsWith(u8, trimmed, "../") or
-        std.mem.startsWith(u8, trimmed, "/") or
-        std.mem.startsWith(u8, trimmed, "~/") or
-        std.mem.eql(u8, trimmed, "~"))
-    {
-        return true;
-    }
-    if (std.mem.indexOfScalar(u8, trimmed, '/') != null or
-        std.mem.indexOfScalar(u8, trimmed, '\\') != null)
-    {
-        return true;
-    }
+    const cwd = std.Io.Dir.cwd();
+    var dir = cwd.openDir(io, trimmed, .{}) catch return false;
+    dir.close(io);
+    return true;
+}
+
+pub fn isInstallableLocalProject(io: std.Io, path: []const u8) bool {
+    const trimmed = std.mem.trim(u8, path, " \t\r\n");
+    if (trimmed.len == 0) return false;
     const cwd = std.Io.Dir.cwd();
     var dir = cwd.openDir(io, trimmed, .{}) catch return false;
     defer dir.close(io);
     if (dir.access(io, "pyproject.toml", .{})) |_| return true else |_| {}
     if (dir.access(io, "setup.py", .{})) |_| return true else |_| {}
     if (dir.access(io, "setup.cfg", .{})) |_| return true else |_| {}
+    return false;
+}
+
+pub fn isPythonScript(path: []const u8) bool {
+    const trimmed = std.mem.trim(u8, path, " \t\r\n");
+    return std.mem.endsWith(u8, trimmed, ".py");
+}
+
+pub fn isLocalProjectPath(io: std.Io, path: []const u8) bool {
+    const trimmed = std.mem.trim(u8, path, " \t\r\n");
+    if (trimmed.len == 0) return false;
+    if (isPythonScript(trimmed)) return false;
+    if (isInstallableLocalProject(io, trimmed)) return true;
+    if (isLocalDirectory(io, trimmed)) return true;
     return false;
 }
 

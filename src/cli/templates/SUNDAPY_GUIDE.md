@@ -143,6 +143,8 @@ Jangan gunakan `#strict` jika:
 | `sundapy --outname app main.py` | Mengompilasi menjadi binary mandiri dengan nama kustom `app`. |
 | `sundapy -y main.py` | Memaksa kompilasi ulang (bypass hash cache). |
 | `sundapy fetch <package>` | Mengunduh package wheel dari PyPI ke `.cache/pyLibrary`. |
+| `sundapy fetch --build <pkg>` | Mengunduh package lalu otomatis mengompilasi menjadi binary executable mandiri. |
+| `sundafetch --build <pkg/dir> -o <bin>` | Mengompilasi library/repo Python menjadi binary mandiri dengan nama kustom. |
 
 ---
 

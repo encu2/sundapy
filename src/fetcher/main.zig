@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const env_mod = @import("env.zig");
 const installer = @import("installer.zig");
 const sdist_mod = @import("sdist.zig");
+const build_exec = @import("build_exec.zig");
 
 pub fn main(ctx: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -21,10 +22,29 @@ pub fn main(ctx: std.process.Init) !void {
     var raw_packages = std.ArrayList([]const u8).empty;
     defer raw_packages.deinit(allocator);
 
+    var build_executable = false;
+    var out_name: ?[]const u8 = null;
+
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             env_mod.printHelp();
             std.process.exit(0);
+        } else if (std.mem.eql(u8, arg, "-b") or std.mem.eql(u8, arg, "--build") or std.mem.eql(u8, arg, "build")) {
+            build_executable = true;
+        } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--outname")) {
+            if (args_iter.next()) |name_arg| {
+                out_name = name_arg;
+                build_executable = true;
+            } else {
+                std.debug.print("Error: -o/--outname requires an argument\n", .{});
+                std.process.exit(1);
+            }
+        } else if (std.mem.startsWith(u8, arg, "-o=")) {
+            out_name = arg["-o=".len..];
+            build_executable = true;
+        } else if (std.mem.startsWith(u8, arg, "--outname=")) {
+            out_name = arg["--outname=".len..];
+            build_executable = true;
         } else if (std.mem.eql(u8, arg, "-r") or std.mem.eql(u8, arg, "--requirement")) {
             if (args_iter.next()) |req_file| {
                 try env_mod.parseRequirementsFile(allocator, io, req_file, &raw_packages);
@@ -50,10 +70,28 @@ pub fn main(ctx: std.process.Init) !void {
         } else if (std.mem.startsWith(u8, arg, "-")) {
             // Ignore other flags
         } else {
-            if (env_mod.isLocalProjectPath(io, arg)) {
+            if (env_mod.isInstallableLocalProject(io, arg) or env_mod.isLocalDirectory(io, arg) or env_mod.isPythonScript(arg)) {
                 try env_mod.appendUnique(allocator, &raw_packages, arg);
             } else if (env_mod.parseRequirementLine(arg)) |pkg_name| {
                 try env_mod.appendUnique(allocator, &raw_packages, pkg_name);
+            }
+        }
+    }
+
+    const cwd = std.Io.Dir.cwd();
+
+    if (raw_packages.items.len == 0) {
+        if (build_executable) {
+            if (cwd.access(io, "pyproject.toml", .{}) catch null != null or
+                cwd.access(io, "setup.py", .{}) catch null != null or
+                cwd.access(io, "setup.cfg", .{}) catch null != null or
+                cwd.access(io, "main.py", .{}) catch null != null or
+                cwd.access(io, "__main__.py", .{}) catch null != null or
+                cwd.access(io, "app.py", .{}) catch null != null or
+                cwd.access(io, "cli.py", .{}) catch null != null or
+                cwd.access(io, "run.py", .{}) catch null != null)
+            {
+                try raw_packages.append(allocator, ".");
             }
         }
     }
@@ -63,7 +101,12 @@ pub fn main(ctx: std.process.Init) !void {
         std.process.exit(1);
     }
 
-    const cwd = std.Io.Dir.cwd();
+    var primary_targets = std.ArrayList([]const u8).empty;
+    defer primary_targets.deinit(allocator);
+    for (raw_packages.items) |p| {
+        try primary_targets.append(allocator, try allocator.dupe(u8, p));
+    }
+
     cwd.createDirPath(io, ".cache/pyLibrary") catch {};
 
     var target_env = env_mod.detectTargetEnv(allocator, io);
@@ -87,7 +130,7 @@ pub fn main(ctx: std.process.Init) !void {
     defer queue.deinit(allocator);
 
     for (raw_packages.items) |pkg| {
-        const canonical = if (env_mod.isLocalProjectPath(io, pkg))
+        const canonical = if (env_mod.isLocalProjectPath(io, pkg) or env_mod.isPythonScript(pkg))
             try allocator.dupe(u8, pkg)
         else
             try env_mod.canonicalPkgName(allocator, pkg);
@@ -100,8 +143,18 @@ pub fn main(ctx: std.process.Init) !void {
     var idx: usize = 0;
     while (idx < queue.items.len) : (idx += 1) {
         const pkg = queue.items[idx];
-        const new_deps = if (env_mod.isLocalProjectPath(io, pkg)) blk: {
+        const new_deps = if (env_mod.isInstallableLocalProject(io, pkg)) blk: {
             break :blk try sdist_mod.buildAndInstallLocalProject(allocator, io, pkg, target_env.environ_map);
+        } else if (env_mod.isLocalDirectory(io, pkg)) blk: {
+            const req_cand = try std.fmt.allocPrint(allocator, "{s}/requirements.txt", .{pkg});
+            defer allocator.free(req_cand);
+            var dir_deps = std.ArrayList([]const u8).empty;
+            if (cwd.access(io, req_cand, .{})) |_| {
+                try env_mod.parseRequirementsFile(allocator, io, req_cand, &dir_deps);
+            } else |_| {}
+            break :blk try dir_deps.toOwnedSlice(allocator);
+        } else if (env_mod.isPythonScript(pkg)) blk: {
+            break :blk &[_][]const u8{};
         } else blk: {
             break :blk try installer.fetchAndInstallPackage(allocator, io, &bundle, pkg, target_env);
         };
@@ -115,4 +168,10 @@ pub fn main(ctx: std.process.Init) !void {
     }
 
     std.debug.print("\n[sundafetch] All packages installed into .cache/pyLibrary successfully.\n", .{});
+
+    if (build_executable) {
+        for (primary_targets.items) |target| {
+            try build_exec.generateAndBuild(allocator, io, target, out_name, target_env.environ_map);
+        }
+    }
 }
