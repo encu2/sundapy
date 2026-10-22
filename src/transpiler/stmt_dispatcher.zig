@@ -118,7 +118,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
                 if (!std.mem.startsWith(u8, target_name, "_star_")) {
                     try self.emit("const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, mod_ident, mod_ident, target_name});
                     try self.emit("var {s}_dyn: Dynamic = undefined;\n", .{target_name});
-                    try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{mod_ident, target_name, mod_ident, f.name});
+                    try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = if (comptime @typeInfo(@TypeOf({s}_mod.builtin_getattr(\"{s}\"))) == .error_union) ({s}_mod.builtin_getattr(\"{s}\") catch Dynamic.initNone()) else {s}_mod.builtin_getattr(\"{s}\");\n", .{ mod_ident, target_name, mod_ident, f.name, mod_ident, f.name, mod_ident, f.name });
                 }
             }
         },
@@ -130,6 +130,9 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
         },
         .yield_stmt => |y| try @import("stmt/stmt_misc.zig").transpileYield(self, y),
         .with_stmt => |w| try @import("stmt/stmt_control.zig").transpileWithStmt(self, w, declared_vars, strict_funcs),
+        .compound_stmt => |cs| {
+            for (cs.items.items) |s| try transpileStmt(self, s, declared_vars, strict_funcs);
+        },
         else => {
             try self.emit("// Unhandled stmt type: {any}\n", .{stmt.*});
         },

@@ -178,6 +178,12 @@ pub const factorial = math_int.factorial;
 pub const popcount = math_int.popcount;
 pub const bit_length = math_int.bit_length;
 
+fn gcd_dyn(a: Dynamic, b: Dynamic) anyerror!Dynamic { return @import("math_integer.zig").gcd(a, b); }
+fn lcm_dyn(a: Dynamic, b: Dynamic) anyerror!Dynamic { return @import("math_integer.zig").lcm(a, b); }
+fn isqrt_dyn(n: Dynamic) anyerror!Dynamic { return @import("math_integer.zig").isqrt(n); }
+fn binomial_dyn(n: Dynamic, k: Dynamic) anyerror!Dynamic { return @import("math_integer.zig").binomial(n, k); }
+fn factorial_dyn(n: Dynamic) anyerror!Dynamic { return @import("math_integer.zig").factorial(n); }
+
 pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "sin")) return @import("datatype/dynamic.zig").toDynamicFunc(sin);
     if (std.mem.eql(u8, attr, "cos")) return @import("datatype/dynamic.zig").toDynamicFunc(cos);
@@ -210,11 +216,11 @@ pub fn builtin_getattr(attr: []const u8) anyerror!Dynamic {
     if (std.mem.eql(u8, attr, "fmod")) return @import("datatype/dynamic.zig").toDynamicFunc(fmod);
     if (std.mem.eql(u8, attr, "isnan")) return @import("datatype/dynamic.zig").toDynamicFunc(isnan);
     if (std.mem.eql(u8, attr, "isinf")) return @import("datatype/dynamic.zig").toDynamicFunc(isinf);
-    if (std.mem.eql(u8, attr, "gcd")) return @import("datatype/dynamic.zig").toDynamicFunc(@import("math_integer.zig").gcd);
-    if (std.mem.eql(u8, attr, "lcm")) return @import("datatype/dynamic.zig").toDynamicFunc(@import("math_integer.zig").lcm);
-    if (std.mem.eql(u8, attr, "isqrt")) return @import("datatype/dynamic.zig").toDynamicFunc(@import("math_integer.zig").isqrt);
-    if (std.mem.eql(u8, attr, "comb") or std.mem.eql(u8, attr, "binomial")) return @import("datatype/dynamic.zig").toDynamicFunc(@import("math_integer.zig").binomial);
-    if (std.mem.eql(u8, attr, "factorial")) return @import("datatype/dynamic.zig").toDynamicFunc(@import("math_integer.zig").factorial);
+    if (std.mem.eql(u8, attr, "gcd")) return @import("datatype/dynamic.zig").toDynamicFunc(gcd_dyn);
+    if (std.mem.eql(u8, attr, "lcm")) return @import("datatype/dynamic.zig").toDynamicFunc(lcm_dyn);
+    if (std.mem.eql(u8, attr, "isqrt")) return @import("datatype/dynamic.zig").toDynamicFunc(isqrt_dyn);
+    if (std.mem.eql(u8, attr, "comb") or std.mem.eql(u8, attr, "binomial")) return @import("datatype/dynamic.zig").toDynamicFunc(binomial_dyn);
+    if (std.mem.eql(u8, attr, "factorial")) return @import("datatype/dynamic.zig").toDynamicFunc(factorial_dyn);
     if (std.mem.eql(u8, attr, "pi")) return pi;
     if (std.mem.eql(u8, attr, "e")) return e;
     if (std.mem.eql(u8, attr, "tau")) return tau;

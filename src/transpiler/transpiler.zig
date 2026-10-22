@@ -227,6 +227,9 @@ pub const Transpiler = struct {
             .class_stmt => |c| {
                 for (c.methods.items) |s| try self.collectImports(s);
             },
+            .compound_stmt => |cs| {
+                for (cs.items.items) |s| try self.collectImports(s);
+            },
             else => {},
         }
     }

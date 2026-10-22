@@ -80,6 +80,12 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             return false;
         },
         .import_stmt, .from_import => return false,
+        .compound_stmt => |cs| {
+            for (cs.items.items) |stmt| {
+                if (isRecursive(stmt, func_name)) return true;
+            }
+            return false;
+        },
         .try_stmt => |t| {
             for (t.body.items) |stmt| {
                 if (isRecursive(stmt, func_name)) return true;

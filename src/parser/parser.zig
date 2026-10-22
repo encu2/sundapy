@@ -90,7 +90,13 @@ pub const Parser = struct {
             if (self.match(.Newline)) continue;
             if (self.match(.Semicolon)) continue;
             const stmt = try self.parseStmt();
-            stmts.append(self.allocator, stmt) catch unreachable;
+            if (stmt.* == .compound_stmt) {
+                for (stmt.compound_stmt.items.items) |s| {
+                    stmts.append(self.allocator, s) catch unreachable;
+                }
+            } else {
+                stmts.append(self.allocator, stmt) catch unreachable;
+            }
         }
         return stmts;
     }

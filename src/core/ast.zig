@@ -79,5 +79,6 @@ pub const Node = union(enum) {
     assign_expr: struct { target: *Node, value: *Node },
     none: void,
     ellipsis: void,
+    compound_stmt: ItemsList,
     dummy_expr: struct { desc: []const u8 },
 };

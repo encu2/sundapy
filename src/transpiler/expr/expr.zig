@@ -132,17 +132,23 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("    var iter_idx_{d}: usize = 0;\n", .{lid});
                 try self.emit("    while (iter_idx_{d} < iter_obj_{d}.len()) : (iter_idx_{d} += 1) {{\n", .{lid, lid, lid});
                 
-                const escaped_target = try self.escapeKeyword(l.target);
-                defer self.allocator.free(escaped_target);
-                const already_declared = if (self.current_declared_vars) |vars| vars.contains(l.target) else false;
-                if (!already_declared) {
-                    if (self.current_declared_vars) |vars| {
-                        try vars.put(l.target, true);
+                if (std.mem.indexOfScalar(u8, l.target, ',') != null) {
+                    try self.emit("        const _tup_{d} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{ lid, lid, lid });
+                    var it_tup = std.mem.splitScalar(u8, l.target, ',');
+                    var tup_idx: usize = 0;
+                    while (it_tup.next()) |raw_part| : (tup_idx += 1) {
+                        const part = std.mem.trim(u8, raw_part, " \t\r\n");
+                        if (part.len == 0) continue;
+                        const esc_part = try self.escapeKeyword(part);
+                        defer self.allocator.free(esc_part);
+                        try self.emit("        var {s} = _tup_{d}.getItem({d});\n", .{ esc_part, lid, tup_idx });
+                        try self.emit("        _ = &{s};\n", .{esc_part});
                     }
+                } else {
+                    const escaped_target = try self.escapeKeyword(l.target);
+                    defer self.allocator.free(escaped_target);
                     try self.emit("        var {s} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{escaped_target, lid, lid});
                     try self.emit("        _ = &{s};\n", .{escaped_target});
-                } else {
-                    try self.emit("        {s} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{escaped_target, lid, lid});
                 }
                 
                 if (l.condition) |cond| {

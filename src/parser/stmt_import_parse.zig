@@ -3,34 +3,43 @@ const ast = @import("../core/ast.zig");
 const Parser = @import("parser.zig").Parser;
 
 pub fn parseImportStmt(self: *Parser) anyerror!*ast.Node {
-    var name: []const u8 = undefined;
-    if (self.current.type == .String or self.current.type == .DString or self.current.type == .TString) {
-        var raw = self.current.lexeme;
-        if (raw.len >= 2 and (raw[0] == '"' or raw[0] == '\'')) {
-            raw = raw[1 .. raw.len - 1];
+    var nodes: std.ArrayList(*ast.Node) = .empty;
+    while (true) {
+        var name: []const u8 = undefined;
+        if (self.current.type == .String or self.current.type == .DString or self.current.type == .TString) {
+            var raw = self.current.lexeme;
+            if (raw.len >= 2 and (raw[0] == '"' or raw[0] == '\'')) {
+                raw = raw[1 .. raw.len - 1];
+            }
+            name = raw;
+            self.advance();
+        } else {
+            const name_ptr = self.current.lexeme.ptr;
+            var name_len = self.current.lexeme.len;
+            try self.expect(.Identifier);
+            while (self.match(.Dot)) {
+                name_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(name_ptr)) + self.current.lexeme.len;
+                try self.expect(.Identifier);
+            }
+            name = name_ptr[0..name_len];
         }
-        name = raw;
-        self.advance();
-    } else {
-        const name_ptr = self.current.lexeme.ptr;
-        var name_len = self.current.lexeme.len;
-        try self.expect(.Identifier);
-        while (self.match(.Dot)) {
-            name_len = (@intFromPtr(self.current.lexeme.ptr) - @intFromPtr(name_ptr)) + self.current.lexeme.len;
+
+        var alias: ?[]const u8 = null;
+        if (self.match(.KeywordAs)) {
+            alias = self.current.lexeme;
             try self.expect(.Identifier);
         }
-        name = name_ptr[0..name_len];
-    }
+        const node = try self.allocator.create(ast.Node);
+        node.* = .{ .import_stmt = .{ .name = name, .alias = alias } };
+        try nodes.append(self.allocator, node);
 
-    var alias: ?[]const u8 = null;
-    if (self.match(.KeywordAs)) {
-        alias = self.current.lexeme;
-        try self.expect(.Identifier);
+        if (!self.match(.Comma)) break;
     }
     try self.consumeStmtEnd();
-    const node = try self.allocator.create(ast.Node);
-    node.* = .{ .import_stmt = .{ .name = name, .alias = alias } };
-    return node;
+    if (nodes.items.len == 1) return nodes.items[0];
+    const comp = try self.allocator.create(ast.Node);
+    comp.* = .{ .compound_stmt = .{ .items = nodes } };
+    return comp;
 }
 
 pub fn parseFromImport(self: *Parser) anyerror!*ast.Node {
@@ -80,20 +89,47 @@ pub fn parseFromImport(self: *Parser) anyerror!*ast.Node {
     }
 
     try self.expect(.KeywordImport);
-    var name: []const u8 = undefined;
-    if (self.match(.Star)) {
-        name = "*";
-    } else {
-        name = self.current.lexeme;
-        try self.expect(.Identifier);
+    var nodes: std.ArrayList(*ast.Node) = .empty;
+    const is_paren = self.match(.LParen);
+
+    while (true) {
+        if (is_paren) {
+            while (self.match(.Newline)) {}
+            if (self.match(.RParen)) break;
+        }
+        var name: []const u8 = undefined;
+        if (self.match(.Star)) {
+            name = "*";
+        } else {
+            name = self.current.lexeme;
+            try self.expect(.Identifier);
+        }
+        var alias: ?[]const u8 = null;
+        if (self.match(.KeywordAs)) {
+            alias = self.current.lexeme;
+            try self.expect(.Identifier);
+        }
+        const node = try self.allocator.create(ast.Node);
+        node.* = .{ .from_import = .{ .module = mod, .name = name, .alias = alias, .level = level } };
+        try nodes.append(self.allocator, node);
+
+        if (is_paren) {
+            while (self.match(.Newline)) {}
+            if (self.match(.RParen)) break;
+            if (!self.match(.Comma)) {
+                while (self.match(.Newline)) {}
+                if (self.match(.RParen)) break;
+                std.debug.print("ParseError on line {d}: expected ',' or ')' in import list\n", .{self.current.line});
+                return error.ParseError;
+            }
+        } else {
+            if (!self.match(.Comma)) break;
+        }
     }
-    var alias: ?[]const u8 = null;
-    if (self.match(.KeywordAs)) {
-        alias = self.current.lexeme;
-        try self.expect(.Identifier);
-    }
+
     try self.consumeStmtEnd();
-    const node = try self.allocator.create(ast.Node);
-    node.* = .{ .from_import = .{ .module = mod, .name = name, .alias = alias, .level = level } };
-    return node;
+    if (nodes.items.len == 1) return nodes.items[0];
+    const comp = try self.allocator.create(ast.Node);
+    comp.* = .{ .compound_stmt = .{ .items = nodes } };
+    return comp;
 }

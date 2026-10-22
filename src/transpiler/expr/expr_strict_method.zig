@@ -102,18 +102,24 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
     const is_general_method = !(is_string_method or is_list_method);
     
     var target_is_module = false;
-    if (getRootId(m.target)) |root_id| {
-        for (self.imported_modules.items) |mod| {
-            if (std.mem.eql(u8, root_id, mod)) {
-                target_is_module = true;
-                break;
+    if (!is_string_method and !is_list_method) {
+        if (m.target.* == .identifier) {
+            const root_id = m.target.identifier.name;
+            for (self.imported_modules.items) |mod| {
+                if (std.mem.eql(u8, root_id, mod)) { target_is_module = true; break; }
             }
-        }
-        if (!target_is_module and self.module_aliases.get(root_id) != null) {
-            target_is_module = true;
-        }
-        if (!target_is_module and (self.classes.contains(root_id) or (root_id.len > 0 and root_id[0] >= 'A' and root_id[0] <= 'Z'))) {
-            target_is_module = true;
+            if (!target_is_module and (self.module_aliases.get(root_id) != null or self.classes.contains(root_id) or (root_id.len > 0 and root_id[0] >= 'A' and root_id[0] <= 'Z'))) {
+                target_is_module = true;
+            }
+        } else if (m.target.* == .getattr) {
+            if (getRootId(m.target)) |root_name| {
+                if (self.c_imported_modules.contains(root_name)) {
+                    target_is_module = true;
+                } else if (self.module_aliases.get(root_name)) |orig| {
+                    if (std.mem.endsWith(u8, orig, ".h") or std.mem.endsWith(u8, orig, ".c") or std.mem.endsWith(u8, orig, ".zig")) target_is_module = true;
+                }
+            }
+            if (!target_is_module and (m.target.getattr.attr.len > 0 and m.target.getattr.attr[0] >= 'A' and m.target.getattr.attr[0] <= 'Z')) target_is_module = true;
         }
     }
     
@@ -337,12 +343,13 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         return;
     }
 
-    if (self.try_depth == 0) {
-        try self.emit("try ", .{});
-    } else if (self.try_depth > 0) {
-        try self.emit("(", .{});
-    }
+    self.label_counter += 1;
+    const lid = self.label_counter;
+    try self.emit("((blk_{d}: {{\n", .{lid});
+    try self.emit("    var _target_{d} = ", .{lid});
     try self.transpileExpr(m.target);
+    try self.emit(";\n", .{});
+    try self.emit("    const _res_{d} = try _target_{d}", .{ lid, lid });
                              
     if (is_string_method) {
         if (std.mem.eql(u8, m.method, "split") and m.args.items.len == 0) {
@@ -376,10 +383,13 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         }
     }
     
-    try self.emit(")", .{});
-    if (self.try_depth > 0) {
-        self.label_counter += 1;
-        try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
+    try self.emit(");\n", .{});
+    if (m.target.* == .identifier) {
+        const escaped = try self.escapeKeyword(m.target.identifier.name);
+        defer self.allocator.free(escaped);
+        try self.emit("    if (comptime @typeInfo(@TypeOf({s})) != .pointer) {s} = _target_{d};\n", .{ escaped, escaped, lid });
     }
+    try self.emit("    break :blk_{d} _res_{d};\n", .{ lid, lid });
+    try self.emit("}}))", .{});
 }
 

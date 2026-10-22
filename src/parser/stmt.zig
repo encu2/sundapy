@@ -13,14 +13,26 @@ const TokenType = lexer.TokenType;
                 if (self.match(.Newline)) continue;
                 if (self.match(.Semicolon)) continue;
                 const stmt = try self.parseStmt();
-                stmts.append(self.allocator, stmt) catch unreachable;
+                if (stmt.* == .compound_stmt) {
+                    for (stmt.compound_stmt.items.items) |s| {
+                        stmts.append(self.allocator, s) catch unreachable;
+                    }
+                } else {
+                    stmts.append(self.allocator, stmt) catch unreachable;
+                }
             }
             if (self.current.type == .Dedent) self.advance();
         } else {
             while (self.current.type != .Newline and self.current.type != .EOF and self.current.type != .Dedent) {
                 if (self.match(.Semicolon)) continue;
                 const stmt = try self.parseStmt();
-                stmts.append(self.allocator, stmt) catch unreachable;
+                if (stmt.* == .compound_stmt) {
+                    for (stmt.compound_stmt.items.items) |s| {
+                        stmts.append(self.allocator, s) catch unreachable;
+                    }
+                } else {
+                    stmts.append(self.allocator, stmt) catch unreachable;
+                }
             }
             if (self.match(.Newline)) {}
         }

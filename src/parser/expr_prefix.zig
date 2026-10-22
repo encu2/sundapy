@@ -111,8 +111,15 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             }
             if (self.current.type == .KeywordFor) {
                 self.advance(); // consume for
-                const target_name = self.current.lexeme;
-                try self.expect(.Identifier);
+                var targets_buf: std.ArrayList(u8) = .empty;
+                while (true) {
+                    try targets_buf.appendSlice(self.allocator, self.current.lexeme);
+                    try self.expect(.Identifier);
+                    if (self.match(.Comma)) {
+                        try targets_buf.append(self.allocator, ',');
+                    } else break;
+                }
+                const target_name = targets_buf.items;
                 try self.expect(.KeywordIn);
                 // Parse iterable with .logicalOr precedence to stop before 'if' keyword
                 const iter_expr = try self.parseExpr(.logicalOr);
@@ -161,8 +168,15 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 }
                 if (self.current.type == .KeywordFor) {
                     self.advance();
-                    const target_name = self.current.lexeme;
-                    try self.expect(.Identifier);
+                    var targets_buf: std.ArrayList(u8) = .empty;
+                    while (true) {
+                        try targets_buf.appendSlice(self.allocator, self.current.lexeme);
+                        try self.expect(.Identifier);
+                        if (self.match(.Comma)) {
+                            try targets_buf.append(self.allocator, ',');
+                        } else break;
+                    }
+                    const target_name = targets_buf.items;
                     try self.expect(.KeywordIn);
                     const iter_expr = try self.parseExpr(.logicalOr);
                     var cond: ?*ast.Node = null;

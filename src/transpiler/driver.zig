@@ -348,7 +348,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                 try self.emitIndent();
                 try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_ident, mod_ident});
                 try self.emitIndent();
-                try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{mod_ident, target_name, mod_ident, f.name});
+                try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = if (comptime @typeInfo(@TypeOf({s}_mod.builtin_getattr(\"{s}\"))) == .error_union) ({s}_mod.builtin_getattr(\"{s}\") catch Dynamic.initNone()) else {s}_mod.builtin_getattr(\"{s}\");\n", .{ mod_ident, target_name, mod_ident, f.name, mod_ident, f.name, mod_ident, f.name });
             }
         }
     }

@@ -8,6 +8,9 @@ const mapping = @import("../mapping.zig");
         if (self.value == .list_type) {
             try self.value.list_type.items.append(alloc, item);
             return Dynamic.initNone();
+        } else if (self.value == .py_obj_type) {
+            const args = [_]Dynamic{item};
+            return try self.builtin_getattr("append").builtin_call(alloc, &args, null);
         }
         return error.AttributeError;
     }
@@ -21,6 +24,9 @@ const mapping = @import("../mapping.zig");
             if (idx > len_i64) idx = len_i64;
             try self.value.list_type.items.insert(alloc, @intCast(idx), item);
             return Dynamic.initNone();
+        } else if (self.value == .py_obj_type) {
+            const args = [_]Dynamic{ index, item };
+            return try self.builtin_getattr("insert").builtin_call(alloc, &args, null);
         }
         return error.AttributeError;
     }
@@ -34,6 +40,9 @@ const mapping = @import("../mapping.zig");
                 }
             }
             std.debug.panic("ValueError: list.remove(x): x not in list\n", .{});
+        } else if (self.value == .py_obj_type) {
+            const args = [_]Dynamic{item};
+            return try self.builtin_getattr("remove").builtin_call(std.heap.c_allocator, &args, null);
         }
         return error.AttributeError;
     }
@@ -42,6 +51,8 @@ const mapping = @import("../mapping.zig");
             const items = self.value.list_type.items.items;
             std.mem.reverse(Dynamic, items);
             return Dynamic.initNone();
+        } else if (self.value == .py_obj_type) {
+            return try self.builtin_getattr("reverse").builtin_call(std.heap.c_allocator, &.{}, null);
         }
         return error.AttributeError;
     }
@@ -71,6 +82,8 @@ const mapping = @import("../mapping.zig");
     pub fn list_pop(self: *Dynamic) !Dynamic {
         if (self.value == .list_type) {
             return self.value.list_type.items.pop() orelse std.debug.panic("IndexError: pop from empty list\n", .{});
+        } else if (self.value == .py_obj_type) {
+            return try self.builtin_getattr("pop").builtin_call(std.heap.c_allocator, &.{}, null);
         }
         return error.AttributeError;
     }
@@ -82,6 +95,9 @@ const mapping = @import("../mapping.zig");
             if (idx < 0) idx += len_i64;
             if (idx < 0 or idx >= len_i64) std.debug.panic("IndexError: pop index out of range\n", .{});
             return self.value.list_type.items.orderedRemove(@intCast(idx));
+        } else if (self.value == .py_obj_type) {
+            const args = [_]Dynamic{index};
+            return try self.builtin_getattr("pop").builtin_call(std.heap.c_allocator, &args, null);
         }
         return error.AttributeError;
     }
