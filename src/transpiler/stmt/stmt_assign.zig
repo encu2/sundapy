@@ -104,6 +104,10 @@ fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, d
             try emitTargetAssign(self, s.value, lid, idx, declared_vars);
         },
         .identifier => |id| {
+            if (self.scoped_aliases.get(id.name)) |alias| {
+                try self.emit("{s} = _tmp_{d}_{d};\n", .{ alias, lid, idx });
+                return;
+            }
             const name = try self.escapeKeyword(id.name);
             defer self.allocator.free(name);
             const already_declared = declared_vars.contains(id.name);
@@ -207,7 +211,8 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
             }
         }
     } else {
-        try self.emit("{s} = ", .{ a.target });
+        const target_ident = self.scoped_aliases.get(a.target) orelse a.target;
+        try self.emit("{s} = ", .{ target_ident });
         if (a.type_ann != null or self.is_strict) {
             if (a.type_ann) |t| {
                 if (std.mem.eql(u8, t, "Dynamic") or std.mem.eql(u8, t, "...")) {
@@ -224,9 +229,11 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
             }
         } else {
             var is_stack_primitive = false;
-            if (self.escape_analyzer.variables.get(a.target)) |v_info| {
-                if (v_info.class == .stack and v_info.is_primitive) {
-                    is_stack_primitive = true;
+            if (self.scoped_aliases.get(a.target) == null) {
+                if (self.escape_analyzer.variables.get(a.target)) |v_info| {
+                    if (v_info.class == .stack and v_info.is_primitive) {
+                        is_stack_primitive = true;
+                    }
                 }
             }
             if (is_stack_primitive) {
@@ -243,7 +250,8 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
     
     if (!already_declared) {
         try self.emitIndent();
-        try self.emit("_ = &{s};\n", .{a.target});
+        const target_ident = self.scoped_aliases.get(a.target) orelse a.target;
+        try self.emit("_ = &{s};\n", .{target_ident});
     }
 }
 

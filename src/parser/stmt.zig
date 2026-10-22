@@ -227,6 +227,7 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
         const is_first_ident = (self.current.type == .Identifier and self.peek_token.type == .Comma);
         if (is_first_starred or is_first_ident) {
             var targets = std.ArrayList(*ast.Node).empty;
+            var has_comma = false;
             if (is_first_starred) {
                 self.advance();
                 const inner = try self.allocator.create(ast.Node);
@@ -242,24 +243,19 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
                 self.advance();
             }
             while (self.match(.Comma)) {
+                has_comma = true;
                 if (self.match(.Star)) {
-                    if (self.current.type == .Identifier) {
-                        const inner = try self.allocator.create(ast.Node);
-                        inner.* = .{ .identifier = .{ .name = self.current.lexeme } };
-                        self.advance();
-                        const s_node = try self.allocator.create(ast.Node);
-                        s_node.* = .{ .starred = .{ .value = inner } };
-                        try targets.append(self.allocator, s_node);
-                    } else break;
+                    const inner = try self.parseExpr(.factor);
+                    const s_node = try self.allocator.create(ast.Node);
+                    s_node.* = .{ .starred = .{ .value = inner } };
+                    try targets.append(self.allocator, s_node);
                 } else if (self.current.type == .Identifier) {
-                    const id = try self.allocator.create(ast.Node);
-                    id.* = .{ .identifier = .{ .name = self.current.lexeme } };
+                    const id = try self.parseExpr(.factor);
                     try targets.append(self.allocator, id);
-                    self.advance();
                 } else break;
             }
             if (self.match(.Eq)) {
-                if (is_first_starred and targets.items.len == 1) {
+                if (!has_comma and is_first_starred and targets.items.len == 1) {
                     std.debug.print("SyntaxError on line {d}: starred assignment target must be in a list or tuple\n", .{self.current.line});
                     return error.ParseError;
                 }

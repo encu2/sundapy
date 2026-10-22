@@ -104,12 +104,20 @@ pub fn transpileTryStmt(self: *Transpiler, t: anytype, declared_vars: *std.Strin
             self.indent_level += 1;
             if (c.except_as) |as_name| {
                 try self.emitIndent();
-                if (self.is_strict) {
-                    try self.emit("var {s}: []const u8 = @errorName(_err_{d}); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                const is_outer = declared_vars.contains(as_name);
+                if (is_outer) {
+                    if (self.is_strict) {
+                        try self.emit("{s} = @errorName(_err_{d});\n", .{ as_name, current_depth });
+                    } else {
+                        try self.emit("{s} = Dynamic.initStr(@errorName(_err_{d}));\n", .{ as_name, current_depth });
+                    }
                 } else {
-                    try self.emit("var {s} = Dynamic.initStr(@errorName(_err_{d})); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                    if (self.is_strict) {
+                        try self.emit("var {s}: []const u8 = @errorName(_err_{d}); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                    } else {
+                        try self.emit("var {s} = Dynamic.initStr(@errorName(_err_{d})); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                    }
                 }
-                try declared_vars.put(as_name, true);
             }
             for (c.body.items) |stmt| {
                 try self.transpileStmt(stmt, declared_vars, strict_funcs);
@@ -130,12 +138,21 @@ pub fn transpileTryStmt(self: *Transpiler, t: anytype, declared_vars: *std.Strin
     } else {
         if (t.except_as) |as_name| {
             try self.emitIndent();
-            if (self.is_strict) {
-                try self.emit("var {s}: []const u8 = @errorName(_err_{d}); _ = &{s};\n", .{ as_name, current_depth, as_name });
+            const is_outer = declared_vars.contains(as_name);
+            if (is_outer) {
+                if (self.is_strict) {
+                    try self.emit("{s} = @errorName(_err_{d});\n", .{ as_name, current_depth });
+                } else {
+                    try self.emit("{s} = Dynamic.initStr(@errorName(_err_{d}));\n", .{ as_name, current_depth });
+                }
             } else {
-                try self.emit("var {s} = Dynamic.initStr(@errorName(_err_{d})); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                if (self.is_strict) {
+                    try self.emit("var {s}: []const u8 = @errorName(_err_{d}); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                } else {
+                    try self.emit("var {s} = Dynamic.initStr(@errorName(_err_{d})); _ = &{s};\n", .{ as_name, current_depth, as_name });
+                }
+                try declared_vars.put(as_name, true);
             }
-            try declared_vars.put(as_name, true);
         }
 
         if (t.except_branch) |eb| {

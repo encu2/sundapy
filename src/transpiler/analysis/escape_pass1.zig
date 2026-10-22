@@ -105,8 +105,14 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
         },
         .try_stmt => |t| {
             for (t.body.items) |stmt| try analyzeFirstPass(self, stmt);
+            for (t.except_clauses.items) |c| {
+                for (c.body.items) |stmt| try analyzeFirstPass(self, stmt);
+            }
             if (t.except_branch) |eb| {
                 for (eb.items) |stmt| try analyzeFirstPass(self, stmt);
+            }
+            if (t.else_branch) |elb| {
+                for (elb.items) |stmt| try analyzeFirstPass(self, stmt);
             }
             if (t.finally_branch) |fb| {
                 for (fb.items) |stmt| try analyzeFirstPass(self, stmt);

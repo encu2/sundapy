@@ -88,18 +88,18 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             return false;
         },
         .try_stmt => |t| {
-            for (t.body.items) |stmt| {
-                if (isRecursive(stmt, func_name)) return true;
+            for (t.body.items) |stmt| if (isRecursive(stmt, func_name)) return true;
+            for (t.except_clauses.items) |c| {
+                for (c.body.items) |stmt| if (isRecursive(stmt, func_name)) return true;
             }
             if (t.except_branch) |eb| {
-                for (eb.items) |stmt| {
-                    if (isRecursive(stmt, func_name)) return true;
-                }
+                for (eb.items) |stmt| if (isRecursive(stmt, func_name)) return true;
+            }
+            if (t.else_branch) |elb| {
+                for (elb.items) |stmt| if (isRecursive(stmt, func_name)) return true;
             }
             if (t.finally_branch) |fb| {
-                for (fb.items) |stmt| {
-                    if (isRecursive(stmt, func_name)) return true;
-                }
+                for (fb.items) |stmt| if (isRecursive(stmt, func_name)) return true;
             }
             return false;
         },
@@ -175,8 +175,14 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
         },
         .try_stmt => |t| {
             for (t.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
+            for (t.except_clauses.items) |c| {
+                for (c.body.items) |stmt| try collectClassFields(allocator, stmt, fields);
+            }
             if (t.except_branch) |eb| {
                 for (eb.items) |stmt| try collectClassFields(allocator, stmt, fields);
+            }
+            if (t.else_branch) |elb| {
+                for (elb.items) |stmt| try collectClassFields(allocator, stmt, fields);
             }
             if (t.finally_branch) |fb| {
                 for (fb.items) |stmt| try collectClassFields(allocator, stmt, fields);
@@ -278,8 +284,14 @@ pub fn hasYield(node: *ast.Node) bool {
         },
         .try_stmt => |t| {
             for (t.body.items) |stmt| if (hasYield(stmt)) return true;
+            for (t.except_clauses.items) |c| {
+                for (c.body.items) |stmt| if (hasYield(stmt)) return true;
+            }
             if (t.except_branch) |eb| {
                 for (eb.items) |stmt| if (hasYield(stmt)) return true;
+            }
+            if (t.else_branch) |elb| {
+                for (elb.items) |stmt| if (hasYield(stmt)) return true;
             }
             if (t.finally_branch) |fb| {
                 for (fb.items) |stmt| if (hasYield(stmt)) return true;
