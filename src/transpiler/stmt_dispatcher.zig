@@ -7,7 +7,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
     self.strict_funcs = strict_funcs;
     try self.emitIndent();
     switch (stmt.*) {
-        .pass_stmt => try self.emit("// pass\n", .{}),
+        .pass_stmt, .ellipsis => try self.emit("// pass\n", .{}),
         .directive_strict => try self.emit("// #strict mode enabled\n", .{}),
         .assign => |a| try @import("stmt/stmt_assign.zig").transpileAssign(self, a, declared_vars),
         .tuple_assign => |t| try @import("stmt/stmt_assign.zig").transpileTupleAssign(self, t, declared_vars),
@@ -99,20 +99,27 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
             const base_target_name = if (f.alias) |a| a else f.name;
             const target_name = try self.escapeKeyword(base_target_name);
             defer self.allocator.free(target_name);
-            const mod_slash_raw = if (std.mem.eql(u8, f.module, ".")) try self.getModSlash(f.name) else try self.getModSlash(f.module);
-            defer self.allocator.free(mod_slash_raw);
-            const mod_slash = if (mod_slash_raw.len > 0 and mod_slash_raw[0] == '/') mod_slash_raw[1..] else mod_slash_raw;
-            // Skip if mod_slash is empty or dummy
-            if (mod_slash.len == 0 or std.mem.eql(u8, mod_slash, "__dummy___")) return;
-            const mod_ident = try self.allocator.dupe(u8, mod_slash);
-            defer self.allocator.free(mod_ident);
-            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
-            
-            try self.emit("const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
-            try self.emit("comptime const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{mod_ident, mod_ident});
-            if (!std.mem.startsWith(u8, target_name, "_star_")) {
-                try self.emit("const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, mod_ident, mod_ident, target_name});
-                try self.emit("var {s}_dyn: @import(\"datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name});
+            const is_all_dots = (std.mem.indexOfNone(u8, f.module, ".") == null);
+            if (is_all_dots and !std.mem.eql(u8, f.name, "*")) {
+                const full_mod = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ f.module, f.name });
+                defer self.allocator.free(full_mod);
+                const mod_slash = try self.getModSlash(full_mod);
+                defer self.allocator.free(mod_slash);
+                try self.emit("const {s} = @import(\"{s}.zig\");\n", .{ target_name, mod_slash });
+            } else {
+                const mod_slash = try self.getModSlash(f.module);
+                defer self.allocator.free(mod_slash);
+                const mod_ident = try self.allocator.dupe(u8, mod_slash);
+                defer self.allocator.free(mod_ident);
+                for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+
+                try self.emit("const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+                try self.emit("const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{mod_ident, mod_ident});
+                if (!std.mem.startsWith(u8, target_name, "_star_")) {
+                    try self.emit("const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, mod_ident, mod_ident, target_name});
+                    try self.emit("var {s}_dyn: Dynamic = undefined;\n", .{target_name});
+                    try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{mod_ident, target_name, mod_ident, f.name});
+                }
             }
         },
         .await_expr => |aw| {

@@ -52,6 +52,8 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
             // Extract type name if it's a simple identifier (e.g. int, str, float, bool)
             if (t_expr.* == .identifier) {
                 p_type = t_expr.identifier.name;
+            } else if (t_expr.* == .ellipsis) {
+                p_type = "...";
             }
         }
         var default_val: ?*ast.Node = null;
@@ -68,6 +70,8 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
         const ret_expr = try self.parseExpr(.none);
         if (ret_expr.* == .identifier) {
             ret_type = ret_expr.identifier.name;
+        } else if (ret_expr.* == .ellipsis) {
+            ret_type = "...";
         }
     } else if (self.match(.Minus)) { 
         _ = try self.parseExpr(.none);

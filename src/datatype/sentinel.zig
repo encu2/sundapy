@@ -18,3 +18,4 @@ pub const Sentinel = struct {
 
 pub const MISSING = Sentinel.init("MISSING", "<sentinel MISSING>");
 pub const NOT_GIVEN = Sentinel.init("NOT_GIVEN", "<sentinel NOT_GIVEN>");
+pub const EllipsisSentinel = Sentinel.init("Ellipsis", "Ellipsis");

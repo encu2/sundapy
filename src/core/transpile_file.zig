@@ -40,7 +40,8 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
     };
     defer program.deinit(allocator);
 
-    var transpiler = @import("../transpiler/transpiler.zig").Transpiler.init(allocator, is_root, if (mod_name) |m| m else "");
+    const is_pkg = std.mem.endsWith(u8, file_path, "__init__.py");
+    var transpiler = @import("../transpiler/transpiler.zig").Transpiler.init(allocator, is_root, if (mod_name) |m| m else "", is_pkg);
     defer transpiler.deinit();
 
     const zig_code = transpiler.transpile(program) catch |err| {
@@ -112,6 +113,31 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             mod_slash = try std.mem.replaceOwned(u8, allocator, raw_mod, ".", "/");
         }
         defer allocator.free(mod_slash);
+
+        var target_mod_name: []const u8 = mod;
+        var free_target_mod = false;
+        if (leading_dots > 0) {
+            if (is_root or mod_name == null or mod_name.?.len == 0) {
+                std.debug.print("ImportError: attempted relative import with no known parent package\n", .{});
+                return error.RelativeImportNoParentPackage;
+            }
+            var target_dest_dir = if (is_pkg) stem_slash else (std.fs.path.dirname(stem_slash) orelse "");
+            var up_dest = leading_dots - 1;
+            while (up_dest > 0) : (up_dest -= 1) {
+                target_dest_dir = std.fs.path.dirname(target_dest_dir) orelse "";
+            }
+            if (up_dest > 0 or target_dest_dir.len == 0) {
+                std.debug.print("ValueError: attempted relative import beyond top-level package\n", .{});
+                return error.RelativeImportBeyondTopLevel;
+            }
+            const dest_stem = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ target_dest_dir, mod_slash });
+            defer allocator.free(dest_stem);
+            const dots_name = try allocator.dupe(u8, dest_stem);
+            for (dots_name) |*c| { if (c.* == '/') c.* = '.'; }
+            target_mod_name = dots_name;
+            free_target_mod = true;
+        }
+        defer if (free_target_mod) allocator.free(target_mod_name);
 
         if (std.mem.endsWith(u8, mod, ".h") or std.mem.endsWith(u8, mod, ".c")) {
             const comp = @import("compiler.zig");
@@ -222,16 +248,14 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             }
         } else {
             const mod_file = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{resolved_dir, mod_slash});
-            
-            
+            defer allocator.free(mod_file);
             if (cwd.access(io, mod_file, .{})) |_| {
-                try transpileFile(allocator, io, mod_file, visited, threads, false, mod);
-                  
+                try transpileFile(allocator, io, mod_file, visited, threads, false, target_mod_name);
             } else |_| {
                 const init_file = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{resolved_dir, mod_slash});
-                
+                defer allocator.free(init_file);
                 if (cwd.access(io, init_file, .{})) {
-                    try transpileFile(allocator, io, init_file, visited, threads, false, mod);
+                    try transpileFile(allocator, io, init_file, visited, threads, false, target_mod_name);
                 } else |_| {
                     const cache_py = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.py", .{mod_slash});
                     defer allocator.free(cache_py);

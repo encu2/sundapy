@@ -9,6 +9,7 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
         .float => |f| try self.emit("{s}", .{f}),
         .string => |s| try self.emit("\"{s}\"", .{s}),
         .none => try self.emit("null", .{}),
+        .ellipsis => try self.emit("{{}}", .{}),
         .identifier => |i| {
             if (std.mem.eql(u8, i.name, "True")) {
                 try self.emit("true", .{});
@@ -16,6 +17,8 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("false", .{});
             } else if (std.mem.eql(u8, i.name, "None")) {
                 try self.emit("null", .{});
+            } else if (std.mem.eql(u8, i.name, "Ellipsis")) {
+                try self.emit("{{}}", .{});
             } else if (std.mem.eql(u8, i.name, "__name__")) {
                 try self.emit("__name__", .{});
             } else {
@@ -131,6 +134,28 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             }
             try self.emit("}}", .{});
         },
+        .tuple_expr => |t| {
+            if (self.is_strict) {
+                try self.emit(".{{", .{});
+                for (t.items.items, 0..) |item, idx| {
+                    try self.transpileExprStrict(item);
+                    if (idx < t.items.items.len - 1) try self.emit(", ", .{});
+                }
+                try self.emit("}}", .{});
+            } else {
+                self.label_counter += 1;
+                const lid = self.label_counter;
+                try self.emit("Dynamic{{ .value = .{{ .tuple_type = blk_{d}: {{\n", .{lid});
+                try self.emit("    const _t_{d} = alloc.alloc(Dynamic, {d}) catch unreachable;\n", .{lid, t.items.items.len});
+                for (t.items.items, 0..) |item, i| {
+                    try self.emit("    _t_{d}[{d}] = dynamic.Dynamic.fromAny(", .{lid, i});
+                    try self.transpileExpr(item);
+                    try self.emit(");\n", .{});
+                }
+                try self.emit("    break :blk_{d} .{{ .items = _t_{d}, .allocator = alloc }};\n", .{lid, lid});
+                try self.emit("}} }} }}", .{});
+            }
+        },
         .list_comp => {
             if (try @import("expr_idiom_lowering.zig").tryLowerMultidimList(self, node)) {
                 return;
@@ -182,6 +207,28 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
             }
         },
         .slice => |s| {
+            if (s.target.* == .dummy_expr) {
+                try self.emit("dynamic.Dynamic.initSlice(", .{});
+                if (s.start) |n| {
+                    try self.transpileExpr(n);
+                } else {
+                    try self.emit("Dynamic.initNone()", .{});
+                }
+                try self.emit(", ", .{});
+                if (s.stop) |n| {
+                    try self.transpileExpr(n);
+                } else {
+                    try self.emit("Dynamic.initNone()", .{});
+                }
+                try self.emit(", ", .{});
+                if (s.step) |n| {
+                    try self.transpileExpr(n);
+                } else {
+                    try self.emit("Dynamic.initNone()", .{});
+                }
+                try self.emit(")", .{});
+                return;
+            }
             if (self.try_depth == 0) {
                 try self.emit("try (", .{});
             } else if (self.try_depth > 0) {
@@ -211,7 +258,6 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 self.label_counter += 1;
                 try self.emit(" catch |err_{d}| break :try_blk_{d} err_{d})", .{self.label_counter, self.try_depth, self.label_counter});
             }
-
         },
         .getattr => |g| {
             if (try @import("expr_math_intrinsics.zig").tryLowerMathAttr(self, g)) return;

@@ -53,6 +53,12 @@ pub fn eq(a: Dynamic, b: Dynamic) Dynamic {
                 else => return Dynamic.initBool(false),
             }
         },
+        .ellipsis_type => {
+            switch (b.value) {
+                .ellipsis_type => return Dynamic.initBool(true),
+                else => return Dynamic.initBool(false),
+            }
+        },
         .py_obj_type => |obj| {
             if (obj) |p| return Dynamic.initBool(@import("python_abi.zig").sundapyBridge.compare(p, b, 2));
             return Dynamic.initBool(false);

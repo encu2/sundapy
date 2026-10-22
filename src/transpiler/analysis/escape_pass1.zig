@@ -75,7 +75,7 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
             try analyzeFirstPass(self, f.iterable);
             for (f.body.items) |stmt| try analyzeFirstPass(self, stmt);
         },
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| try analyzeFirstPass(self, item);
         },
         .dict_expr => |d| {

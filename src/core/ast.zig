@@ -22,6 +22,8 @@ pub const CaseBranch = struct {
     body: std.ArrayList(*Node),
 };
 
+pub const ItemsList = struct { items: std.ArrayList(*Node) };
+
 pub const Node = union(enum) {
     number: f64, // could be generic numeric value
     integer: []const u8, // original string for precise big ints
@@ -55,11 +57,12 @@ pub const Node = union(enum) {
     yield_stmt: struct { value: ?*Node },
     assert_stmt: struct { condition: *Node, message: ?*Node },
     yield_expr: struct { value: ?*Node },
-    list_expr: struct { items: std.ArrayList(*Node) },
+    list_expr: ItemsList,
+    tuple_expr: ItemsList,
     list_comp: struct { expression: *Node, target: []const u8, iterable: *Node, condition: ?*Node, is_async: bool },
     dict_expr: struct { keys: std.ArrayList(*Node), values: std.ArrayList(*Node) },
     import_stmt: struct { name: []const u8, alias: ?[]const u8 },
-    from_import: struct { module: []const u8, name: []const u8, alias: ?[]const u8 },
+    from_import: struct { module: []const u8, name: []const u8, alias: ?[]const u8, level: usize = 0 },
     try_stmt: struct { body: std.ArrayList(*Node), except_branch: ?std.ArrayList(*Node), except_type: ?[]const u8, except_as: ?[]const u8, is_star: bool = false, finally_branch: ?std.ArrayList(*Node), else_branch: ?std.ArrayList(*Node) },
     raise_stmt: struct { value: ?*Node, from_exc: ?*Node },
     match_stmt: struct { subject: *Node, cases: std.ArrayList(CaseBranch) },

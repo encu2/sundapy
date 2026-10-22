@@ -7,6 +7,7 @@ pub const set_type = @import("set.zig");
 
 pub const DynType = enum {
     none_type,
+    ellipsis_type,
     bool_type,
     i8_type, i16_type, i32_type, i64_type, i128_type, i256_type, i512_type, i1024_type,
     u8_type, u16_type, u32_type, u64_type, u128_type, u256_type, u512_type, u1024_type,
@@ -86,6 +87,7 @@ pub fn fromAny(val: anytype) Dynamic {
 
     pub const Value = union(DynType) {
         none_type: void,
+        ellipsis_type: void,
         bool_type: bool,
         
         // Signed Integers
@@ -141,6 +143,8 @@ pub fn fromAny(val: anytype) Dynamic {
 
     pub fn initNone() Dynamic { return .{ .value = .{ .none_type = {} } }; }
     pub inline fn isNone(self: Dynamic) bool { return self.value == .none_type; }
+    pub fn initEllipsis() Dynamic { return .{ .value = .{ .ellipsis_type = {} } }; }
+    pub inline fn isEllipsis(self: Dynamic) bool { return self.value == .ellipsis_type; }
     pub fn initBool(val: bool) Dynamic { return .{ .value = .{ .bool_type = val } }; }
     pub fn initInt(val: i64) Dynamic { return .{ .value = .{ .i64_type = val } }; }
     pub fn initFloat(val: f64) Dynamic { return .{ .value = .{ .float_type = val } }; }
@@ -151,6 +155,15 @@ pub fn fromAny(val: anytype) Dynamic {
     pub fn initSet(allocator: std.mem.Allocator) Dynamic { return .{ .value = .{ .set_type = set_type.Set.init(allocator) } }; }
     /// Wrap a heap-allocated struct pointer (class instance) as a Dynamic object.
     pub fn initObject(ptr: *anyopaque) Dynamic { return .{ .value = .{ .py_obj_type = ptr } }; }
+    pub fn initSlice(start: Dynamic, stop: Dynamic, step: Dynamic) Dynamic {
+        const py_abi = @import("python_abi.zig");
+        if (py_abi.sym.lib != null) {
+            if (py_abi.conv.makePySlice(start, stop, step)) |s_obj| {
+                return .{ .value = .{ .py_obj_type = s_obj } };
+            }
+        }
+        return .{ .value = .none_type };
+    }
 
     pub fn toBool(self: Dynamic) bool {
         return switch (self.value) {
@@ -333,6 +346,7 @@ pub fn fromAny(val: anytype) Dynamic {
 pub const True = Dynamic{ .value = .{ .bool_type = true } };
 pub const False = Dynamic{ .value = .{ .bool_type = false } };
 pub const None = Dynamic{ .value = .none_type };
+pub const Ellipsis = Dynamic{ .value = .ellipsis_type };
 
 pub const print = @import("dynamic/print.zig").print;
 

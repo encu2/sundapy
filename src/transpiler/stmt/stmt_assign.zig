@@ -8,8 +8,9 @@ pub fn transpileTupleAssign(self: *Transpiler, t: anytype, declared_vars: *std.S
     self.label_counter += 1;
     const lid = self.label_counter;
 
-    if (t.value.* == .list_expr and t.value.list_expr.items.items.len == targets.len) {
-        const rhs_items = t.value.list_expr.items.items;
+    const is_direct_rhs = (t.value.* == .list_expr and t.value.list_expr.items.items.len == targets.len) or (t.value.* == .tuple_expr and t.value.tuple_expr.items.items.len == targets.len);
+    if (is_direct_rhs) {
+        const rhs_items = if (t.value.* == .list_expr) t.value.list_expr.items.items else t.value.tuple_expr.items.items;
         for (rhs_items, 0..) |item, idx| {
             if (idx > 0) try self.emitIndent();
             try self.emit("const _tmp_{d}_{d} = Dynamic.fromAny(", .{ lid, idx });
@@ -74,7 +75,7 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         if (self.is_strict) {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                if (std.mem.eql(u8, t, "Dynamic")) {
+                if (std.mem.eql(u8, t, "Dynamic") or std.mem.eql(u8, t, "...")) {
                     try self.emit("Dynamic.fromAny(", .{});
                     try self.transpileExprStrict(a.value);
                     try self.emit(")", .{});
@@ -88,7 +89,7 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         } else {
             if (a.type_ann) |t| {
                 try self.emit("var {s}: {s} = ", .{ a.target, mapType(t) });
-                if (std.mem.eql(u8, t, "Dynamic")) {
+                if (std.mem.eql(u8, t, "Dynamic") or std.mem.eql(u8, t, "...")) {
                     try self.emit("Dynamic.fromAny(", .{});
                     try self.transpileExprStrict(a.value);
                     try self.emit(")", .{});
@@ -124,7 +125,7 @@ pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.String
         try self.emit("{s} = ", .{ a.target });
         if (a.type_ann != null or self.is_strict) {
             if (a.type_ann) |t| {
-                if (std.mem.eql(u8, t, "Dynamic")) {
+                if (std.mem.eql(u8, t, "Dynamic") or std.mem.eql(u8, t, "...")) {
                     try self.emit("Dynamic.fromAny(", .{});
                     try self.transpileExprStrict(a.value);
                     try self.emit(")", .{});

@@ -38,6 +38,7 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("}})", .{});
             },
             .none => try self.emit("(Dynamic{{ .value = .none_type }})", .{}),
+            .ellipsis => try self.emit("(Dynamic{{ .value = .ellipsis_type }})", .{}),
             .identifier => |i| {
                 if (std.mem.eql(u8, i.name, "True")) {
                     try self.emit("dynamic.True", .{});
@@ -45,6 +46,8 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                     try self.emit("dynamic.False", .{});
                 } else if (std.mem.eql(u8, i.name, "None")) {
                     try self.emit("dynamic.None", .{});
+                } else if (std.mem.eql(u8, i.name, "Ellipsis")) {
+                    try self.emit("dynamic.Ellipsis", .{});
                 } else if (std.mem.eql(u8, i.name, "__name__")) {
                     if (self.is_root) {
                         try self.emit("(Dynamic{{ .value = .{{ .str_type = \"__main__\" }} }})", .{});
@@ -99,6 +102,19 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 }
                 try self.emit("    break :blk_{d} _l_{d};\n", .{lid, lid});
                 try self.emit("}} }} }} }}", .{});
+            },
+            .tuple_expr => |t| {
+                self.label_counter += 1;
+                const lid = self.label_counter;
+                try self.emit("Dynamic{{ .value = .{{ .tuple_type = blk_{d}: {{\n", .{lid});
+                try self.emit("    const _t_{d} = alloc.alloc(Dynamic, {d}) catch unreachable;\n", .{lid, t.items.items.len});
+                for (t.items.items, 0..) |item, i| {
+                    try self.emit("    _t_{d}[{d}] = dynamic.Dynamic.fromAny(", .{lid, i});
+                    try self.transpileExpr(item);
+                    try self.emit(");\n", .{});
+                }
+                try self.emit("    break :blk_{d} .{{ .items = _t_{d}, .allocator = alloc }};\n", .{lid, lid});
+                try self.emit("}} }} }}", .{});
             },
             .list_comp => |l| {
                 if (try @import("expr_idiom_lowering.zig").tryLowerMultidimList(self, node)) {

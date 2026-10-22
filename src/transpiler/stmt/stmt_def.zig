@@ -73,7 +73,7 @@ fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
                 for (fb.items) |stmt| try collectVars(stmt, vars);
             }
         },
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| try collectVars(item, vars);
         },
         .dict_expr => |d| {
@@ -186,6 +186,12 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
         }
     }
     
+    for (d.params.items) |p| {
+        try self.emitIndent();
+        const esc_p = try self.escapeKeyword(p.name);
+        defer self.allocator.free(esc_p);
+        try self.emit("_ = if (true) {s} else {{}};\n", .{esc_p});
+    }
 
     var declared_vars = std.StringHashMap(bool).init(self.allocator);
     var all_vars = std.StringHashMap(bool).init(self.allocator);

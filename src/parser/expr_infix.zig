@@ -2,6 +2,42 @@ const std = @import("std");
 const ast = @import("../core/ast.zig");
 const Parser = @import("parser.zig").Parser;
 
+fn parseSliceOrExpr(self: *Parser, target_node: *ast.Node) anyerror!*ast.Node {
+    if (self.current.type == .Colon) {
+        self.advance();
+        var slice_stop: ?*ast.Node = null;
+        var slice_step: ?*ast.Node = null;
+        if (self.current.type != .Colon and self.current.type != .Comma and self.current.type != .RBracket) {
+            slice_stop = try self.parseExpr(.none);
+        }
+        if (self.match(.Colon)) {
+            if (self.current.type != .Comma and self.current.type != .RBracket) {
+                slice_step = try self.parseExpr(.none);
+            }
+        }
+        const s_node = try self.allocator.create(ast.Node);
+        s_node.* = .{ .slice = .{ .target = target_node, .start = null, .stop = slice_stop, .step = slice_step } };
+        return s_node;
+    }
+    const first = try self.parseExpr(.none);
+    if (self.match(.Colon)) {
+        var slice_stop: ?*ast.Node = null;
+        var slice_step: ?*ast.Node = null;
+        if (self.current.type != .Colon and self.current.type != .Comma and self.current.type != .RBracket) {
+            slice_stop = try self.parseExpr(.none);
+        }
+        if (self.match(.Colon)) {
+            if (self.current.type != .Comma and self.current.type != .RBracket) {
+                slice_step = try self.parseExpr(.none);
+            }
+        }
+        const s_node = try self.allocator.create(ast.Node);
+        s_node.* = .{ .slice = .{ .target = target_node, .start = first, .stop = slice_stop, .step = slice_step } };
+        return s_node;
+    }
+    return first;
+}
+
 pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
     const node = try self.allocator.create(ast.Node);
     const t = self.current.type;
@@ -80,60 +116,28 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
     
     if (t == .LBracket) {
         self.advance();
-        var slice_start: ?*ast.Node = null;
-        var slice_stop: ?*ast.Node = null;
-        var slice_step: ?*ast.Node = null;
-        var is_slice = false;
-
-        if (self.current.type == .Colon) {
-            is_slice = true;
-            self.advance();
-            if (self.current.type != .Colon and self.current.type != .RBracket) {
-                slice_stop = try self.parseExpr(.none);
+        const dummy_node = try self.allocator.create(ast.Node);
+        dummy_node.* = .{ .dummy_expr = .{ .desc = "slice_item" } };
+        const first_elem = try parseSliceOrExpr(self, dummy_node);
+        if (self.match(.Comma)) {
+            var items: std.ArrayList(*ast.Node) = .empty;
+            items.append(self.allocator, first_elem) catch unreachable;
+            while (self.current.type != .RBracket and self.current.type != .EOF) {
+                items.append(self.allocator, try parseSliceOrExpr(self, dummy_node)) catch unreachable;
+                if (!self.match(.Comma)) break;
             }
-            if (self.current.type == .Colon) {
-                self.advance();
-                if (self.current.type != .RBracket) {
-                    slice_step = try self.parseExpr(.none);
-                }
-            }
-        } else {
-            const first = try self.parseExpr(.none);
-            if (self.current.type == .Colon) {
-                is_slice = true;
-                slice_start = first;
-                self.advance();
-                if (self.current.type != .Colon and self.current.type != .RBracket) {
-                    slice_stop = try self.parseExpr(.none);
-                }
-                if (self.current.type == .Colon) {
-                    self.advance();
-                    if (self.current.type != .RBracket) {
-                        slice_step = try self.parseExpr(.none);
-                    }
-                }
-            } else {
-                if (self.current.type == .Comma) {
-                    var items: std.ArrayList(*ast.Node) = .empty;
-                    items.append(self.allocator, first) catch unreachable;
-                    while (self.match(.Comma)) {
-                        if (self.current.type == .RBracket) break;
-                        items.append(self.allocator, try self.parseExpr(.none)) catch unreachable;
-                    }
-                    const tuple_node = try self.allocator.create(ast.Node);
-                    tuple_node.* = .{ .list_expr = .{ .items = items } };
-                    try self.expect(.RBracket);
-                    node.* = .{ .subscript = .{ .target = left, .index = tuple_node } };
-                    return node;
-                }
-                try self.expect(.RBracket);
-                node.* = .{ .subscript = .{ .target = left, .index = first } };
-                return node;
-            }
+            try self.expect(.RBracket);
+            const tuple_node = try self.allocator.create(ast.Node);
+            tuple_node.* = .{ .tuple_expr = .{ .items = items } };
+            node.* = .{ .subscript = .{ .target = left, .index = tuple_node } };
+            return node;
         }
-
         try self.expect(.RBracket);
-        node.* = .{ .slice = .{ .target = left, .start = slice_start, .stop = slice_stop, .step = slice_step } };
+        if (first_elem.* == .slice) {
+            first_elem.slice.target = left;
+            return first_elem;
+        }
+        node.* = .{ .subscript = .{ .target = left, .index = first_elem } };
         return node;
     }
 

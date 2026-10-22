@@ -66,6 +66,10 @@ pub fn transpileStrictBuiltinCall(self: *Transpiler, c: anytype, name: []const u
                     try self.emit("(", .{});
                     try self.transpileExpr(c.args.items[0]);
                     try self.emit(").builtin_isinstance(\"{s}\").toBool()", .{elem.identifier.name});
+                } else if (elem.* == .string) {
+                    try self.emit("(", .{});
+                    try self.transpileExpr(c.args.items[0]);
+                    try self.emit(").builtin_isinstance(\"{s}\").toBool()", .{elem.string});
                 } else {
                     try self.emit("false", .{});
                 }
@@ -76,6 +80,8 @@ pub fn transpileStrictBuiltinCall(self: *Transpiler, c: anytype, name: []const u
             try self.transpileExpr(c.args.items[0]);
             if (c.args.items.len >= 2 and c.args.items[1].* == .identifier) {
                 try self.emit(").builtin_isinstance(\"{s}\")", .{c.args.items[1].identifier.name});
+            } else if (c.args.items.len >= 2 and c.args.items[1].* == .string) {
+                try self.emit(").builtin_isinstance(\"{s}\")", .{c.args.items[1].string});
             } else {
                 try self.emit(").builtin_isinstance(\"\")", .{});
             }

@@ -25,7 +25,18 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             self.advance();
         },
         .Float => {
-            node.* = .{ .float = self.current.lexeme };
+            const f_raw = self.current.lexeme;
+            var f_norm: []const u8 = f_raw;
+            if (f_raw.len > 0 and f_raw[0] == '.') {
+                f_norm = try std.fmt.allocPrint(self.allocator, "0{s}", .{f_raw});
+            } else if (f_raw.len > 0 and f_raw[f_raw.len - 1] == '.') {
+                f_norm = try std.fmt.allocPrint(self.allocator, "{s}0", .{f_raw});
+            } else if (std.mem.indexOf(u8, f_raw, ".e")) |idx| {
+                f_norm = try std.fmt.allocPrint(self.allocator, "{s}.0e{s}", .{ f_raw[0..idx], f_raw[idx + 2 ..] });
+            } else if (std.mem.indexOf(u8, f_raw, ".E")) |idx| {
+                f_norm = try std.fmt.allocPrint(self.allocator, "{s}.0E{s}", .{ f_raw[0..idx], f_raw[idx + 2 ..] });
+            }
+            node.* = .{ .float = f_norm };
             self.advance();
         },
         .String, .FString => {
@@ -183,7 +194,7 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             }
             
             if (is_tuple) {
-                node.* = .{ .list_expr = .{ .items = items } };
+                node.* = .{ .tuple_expr = .{ .items = items } };
                 return node;
             }
             const single = items.items[0];

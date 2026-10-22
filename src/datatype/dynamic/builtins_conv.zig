@@ -87,6 +87,7 @@ pub fn builtin_str(self: Dynamic, alloc: std.mem.Allocator) Dynamic {
             return Dynamic.initStr("False");
         },
         .none_type => return Dynamic.initStr("None"),
+        .ellipsis_type => return Dynamic.initStr("Ellipsis"),
         .list_type => |l| {
             var buf: std.ArrayList(u8) = .empty;
             buf.append(alloc, '[') catch unreachable;

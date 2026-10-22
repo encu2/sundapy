@@ -14,6 +14,13 @@ pub fn dynamicToPyObject(arg: Dynamic) ?*anyopaque {
             }
             return null;
         },
+        .ellipsis_type => {
+            if (sym.py_ellipsis) |e| {
+                sym.fn_Py_IncRef(e);
+                return e;
+            }
+            return null;
+        },
         .str_type => |s| sym.fn_PyUnicode_FromStringAndSize(@ptrCast(s.ptr), @intCast(s.len)),
         .bytes_type => |b| sym.fn_PyBytes_FromStringAndSize(@ptrCast(b.ptr), @intCast(b.len)),
         .i64_type => |i| sym.fn_PyLong_FromLongLong(i),
@@ -100,6 +107,9 @@ pub fn getItem(obj: *anyopaque, idx: usize) Dynamic {
         sym.fn_PyErr_Clear();
         return Dynamic{ .value = .{ .none_type = {} } };
     }
+    if (sym.py_ellipsis != null and item.? == sym.py_ellipsis.?) {
+        return Dynamic{ .value = .{ .ellipsis_type = {} } };
+    }
     return Dynamic{ .value = .{ .py_obj_type = item.? } };
 }
 
@@ -144,6 +154,18 @@ pub fn getString(obj: *anyopaque) []const u8 {
     return std.mem.span(utf8.?);
 }
 
+fn dynamicListToPyTuple(l: anytype) ?*anyopaque {
+    const py_tuple = sym.fn_PyTuple_New(@intCast(l.items.items.len)) orelse return null;
+    for (l.items.items, 0..) |item, i| {
+        const py_item = dynamicToPyObject(item) orelse (if (sym.py_none) |n| blk: {
+            sym.fn_Py_IncRef(n);
+            break :blk n;
+        } else continue);
+        _ = sym.fn_PyTuple_SetItem(py_tuple, @intCast(i), py_item);
+    }
+    return py_tuple;
+}
+
 pub fn getDynamicItem(obj: *anyopaque, alloc: std.mem.Allocator, key: Dynamic) !Dynamic {
     const _gstate = sym.fn_PyGILState_Ensure();
     defer sym.fn_PyGILState_Release(_gstate);
@@ -152,7 +174,14 @@ pub fn getDynamicItem(obj: *anyopaque, alloc: std.mem.Allocator, key: Dynamic) !
     if (py_key == null) return error.PythonError;
     defer sym.fn_Py_DecRef(py_key.?);
 
-    const item = sym.fn_PyObject_GetItem(obj, py_key.?);
+    var item = sym.fn_PyObject_GetItem(obj, py_key.?);
+    if (item == null and key.value == .list_type) {
+        sym.fn_PyErr_Clear();
+        if (dynamicListToPyTuple(key.value.list_type)) |pt| {
+            defer sym.fn_Py_DecRef(pt);
+            item = sym.fn_PyObject_GetItem(obj, pt);
+        }
+    }
     if (item == null) {
         sym.fn_PyErr_Print();
         return error.PythonError;
@@ -233,7 +262,14 @@ pub fn setDynamicItem(obj: *anyopaque, index: Dynamic, value: Dynamic) !void {
     const py_val = dynamicToPyObject(value) orelse return error.TypeError;
     defer sym.fn_Py_DecRef(py_val);
 
-    const res = set_fn(obj, py_key, py_val);
+    var res = set_fn(obj, py_key, py_val);
+    if (res != 0 and index.value == .list_type) {
+        sym.fn_PyErr_Clear();
+        if (dynamicListToPyTuple(index.value.list_type)) |pt| {
+            defer sym.fn_Py_DecRef(pt);
+            res = set_fn(obj, pt, py_val);
+        }
+    }
     if (res != 0) {
         sym.fn_PyErr_Clear();
         return error.KeyError;
@@ -259,5 +295,22 @@ pub fn getDynamicSlice(obj: *anyopaque, start: Dynamic, stop: Dynamic, step: Dyn
 
     const res_obj = sym.fn_PyObject_GetItem(obj, slice_obj) orelse return error.TypeError;
     return Dynamic{ .value = .{ .py_obj_type = res_obj } };
+}
+
+pub fn makePySlice(start: Dynamic, stop: Dynamic, step: Dynamic) ?*anyopaque {
+    const _gstate = sym.fn_PyGILState_Ensure();
+    defer sym.fn_PyGILState_Release(_gstate);
+
+    const slice_fn = sym.fn_PySlice_New orelse return null;
+    const py_start: ?*anyopaque = if (start.value != .none_type) dynamicToPyObject(start) else null;
+    defer if (py_start) |ps| sym.fn_Py_DecRef(ps);
+
+    const py_stop: ?*anyopaque = if (stop.value != .none_type) dynamicToPyObject(stop) else null;
+    defer if (py_stop) |ps| sym.fn_Py_DecRef(ps);
+
+    const py_step: ?*anyopaque = if (step.value != .none_type) dynamicToPyObject(step) else null;
+    defer if (py_step) |ps| sym.fn_Py_DecRef(ps);
+
+    return slice_fn(py_start, py_stop, py_step);
 }
 

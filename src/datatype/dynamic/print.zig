@@ -5,6 +5,7 @@ const Dynamic = dynamic.Dynamic;
 pub fn printValue(self: Dynamic) void {
     switch (self.value) {
         .none_type => std.debug.print("None", .{}),
+        .ellipsis_type => std.debug.print("Ellipsis", .{}),
         .bool_type => |b| std.debug.print("{s}", .{if (b) "True" else "False"}),
         .i8_type => |v| std.debug.print("{d}", .{v}),
         .i16_type => |v| std.debug.print("{d}", .{v}),

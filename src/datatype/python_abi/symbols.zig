@@ -53,6 +53,7 @@ pub var fn_PyFloat_AsDouble: *const fn (*anyopaque) callconv(.c) f64 = undefined
 pub var fn_PyBool_Type: *anyopaque = undefined;
 pub var fn_PyObject_IsTrue: *const fn (*anyopaque) callconv(.c) c_int = undefined;
 pub var py_none: ?*anyopaque = null;
+pub var py_ellipsis: ?*anyopaque = null;
 
 extern "c" fn dlopen(path: [*c]const u8, mode: c_int) ?*anyopaque;
 
@@ -132,6 +133,7 @@ pub fn loadSymbols() !void {
     fn_PyBool_Type = lib.?.lookup(*anyopaque, "PyBool_Type") orelse return error.MissingSymbol;
     fn_PyObject_IsTrue = lib.?.lookup(*const fn (*anyopaque) callconv(.c) c_int, "PyObject_IsTrue") orelse return error.MissingSymbol;
     py_none = lib.?.lookup(*anyopaque, "_Py_NoneStruct");
+    py_ellipsis = lib.?.lookup(*anyopaque, "_Py_EllipsisObject");
     fn_PyNumber_FloorDivide = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_FloorDivide");
     fn_PyNumber_Remainder = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Remainder");
     fn_PyNumber_Power = lib.?.lookup(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Power");

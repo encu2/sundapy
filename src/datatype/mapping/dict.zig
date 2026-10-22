@@ -60,6 +60,52 @@ pub const Dict = struct {
                 }
                 return std.fmt.bufPrint(buf, "f{d}", .{f}) catch null;
             },
+            .none_type => "n",
+            .ellipsis_type => "...",
+            .tuple_type => |t| {
+                if (buf.len < 4) return null;
+                buf[0] = 't'; buf[1] = '(';
+                var pos: usize = 2;
+                for (t.items, 0..) |elem, idx| {
+                    if (idx > 0) {
+                        if (pos >= buf.len) return null;
+                        buf[pos] = ',';
+                        pos += 1;
+                    }
+                    var sub_buf: [128]u8 = undefined;
+                    if (keyToBuf(elem, &sub_buf)) |s| {
+                        if (pos + s.len >= buf.len) return null;
+                        @memcpy(buf[pos .. pos + s.len], s);
+                        pos += s.len;
+                    } else return null;
+                }
+                if (pos >= buf.len) return null;
+                buf[pos] = ')';
+                pos += 1;
+                return buf[0..pos];
+            },
+            .list_type => |l| {
+                if (buf.len < 4) return null;
+                buf[0] = 't'; buf[1] = '(';
+                var pos: usize = 2;
+                for (l.items.items, 0..) |elem, idx| {
+                    if (idx > 0) {
+                        if (pos >= buf.len) return null;
+                        buf[pos] = ',';
+                        pos += 1;
+                    }
+                    var sub_buf: [128]u8 = undefined;
+                    if (keyToBuf(elem, &sub_buf)) |s| {
+                        if (pos + s.len >= buf.len) return null;
+                        @memcpy(buf[pos .. pos + s.len], s);
+                        pos += s.len;
+                    } else return null;
+                }
+                if (pos >= buf.len) return null;
+                buf[pos] = ')';
+                pos += 1;
+                return buf[0..pos];
+            },
             else => null,
         };
     }

@@ -68,7 +68,7 @@ pub fn analyzeSecondPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
                 for (fb.items) |stmt| try analyzeSecondPass(self, stmt);
             }
         },
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| {
                 if (item.* == .identifier) try self.markEscape(item.identifier.name);
                 try analyzeSecondPass(self, item);

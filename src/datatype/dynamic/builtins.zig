@@ -26,12 +26,14 @@ const mapping = @import("../mapping.zig");
             .bytes_type, .bytearray_type => Dynamic.initStr("bytes"),
             .set_type, .frozenset_type => Dynamic.initStr("set"),
             .none_type => Dynamic.initStr("NoneType"),
+            .ellipsis_type => Dynamic.initStr("ellipsis"),
             .gpu_buffer_type => Dynamic.initStr("gpu.Buffer"),
             .gpu_kernel_type => Dynamic.initStr("gpu.Kernel"),
             else => Dynamic.initStr(@tagName(self.value)),
         };
     }
     pub fn builtin_isinstance(self: Dynamic, class_name: []const u8) Dynamic {
+        if (std.mem.eql(u8, class_name, "ellipsis") or std.mem.eql(u8, class_name, "EllipsisType")) return Dynamic.initBool(self.value == .ellipsis_type);
         if (std.mem.eql(u8, class_name, "int")) {
             return switch (self.value) {
                 .i8_type, .i16_type, .i32_type, .i64_type, .i128_type, .i256_type, .i512_type, .i1024_type,

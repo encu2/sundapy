@@ -49,7 +49,7 @@ fn containsAnyTarget(node: *ast.Node, targets: []const []const u8) bool {
         },
         .subscript => |s| return containsAnyTarget(s.target, targets) or containsAnyTarget(s.index, targets),
         .getattr => |g| return containsAnyTarget(g.target, targets),
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| {
                 if (containsAnyTarget(item, targets)) return true;
             }

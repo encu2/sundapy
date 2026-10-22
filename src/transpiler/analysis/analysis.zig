@@ -56,7 +56,7 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             if (a.message) |m| if (isRecursive(m, func_name)) return true;
             return false;
         },
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| {
                 if (isRecursive(item, func_name)) return true;
             }
@@ -224,7 +224,7 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
             try collectClassFields(allocator, t.true_expr, fields);
             try collectClassFields(allocator, t.false_expr, fields);
         },
-        .list_expr => |l| {
+        .list_expr, .tuple_expr => |l| {
             for (l.items.items) |item| try collectClassFields(allocator, item, fields);
         },
         .list_comp => |l| {

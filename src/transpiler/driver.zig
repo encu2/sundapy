@@ -4,9 +4,7 @@ const Transpiler = @import("transpiler.zig").Transpiler;
 
 fn isModOrAlias(self: *Transpiler, name: []const u8) bool {
     if (self.module_aliases.get(name) != null) return true;
-    for (self.imported_modules.items) |mod| {
-        if (std.mem.eql(u8, name, mod)) return true;
-    }
+    for (self.imported_modules.items) |mod| { if (std.mem.eql(u8, name, mod)) return true; }
     return false;
 }
 
@@ -68,9 +66,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     var emitted_from_mods = std.StringHashMap(void).init(self.allocator);
     defer {
         var it_em = emitted_from_mods.keyIterator();
-        while (it_em.next()) |k| {
-            self.allocator.free(k.*);
-        }
+        while (it_em.next()) |k| self.allocator.free(k.*);
         emitted_from_mods.deinit();
     }
     
@@ -113,26 +109,36 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                 }
                 try self.emit("pub const {s} = @field({s}_c, \"{s}\");\n", .{ target_name, c_mod_name, f.name });
             } else {
-                const mod_slash = try self.getModSlash(f.module);
-                defer self.allocator.free(mod_slash);
-                const mod_ident = try self.allocator.dupe(u8, mod_slash);
-                defer self.allocator.free(mod_ident);
-                for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+                const is_all_dots = (std.mem.indexOfNone(u8, f.module, ".") == null);
+                if (is_all_dots and !std.mem.eql(u8, f.name, "*")) {
+                    const full_mod = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ f.module, f.name });
+                    defer self.allocator.free(full_mod);
+                    const mod_slash = try self.getModSlash(full_mod);
+                    defer self.allocator.free(mod_slash);
+                    if (!emitted_from_mods.contains(target_name)) {
+                        try emitted_from_mods.put(try self.allocator.dupe(u8, target_name), {});
+                        try self.emit("pub const {s} = @import(\"{s}.zig\");\n", .{ target_name, mod_slash });
+                    }
+                } else {
+                    const mod_slash = try self.getModSlash(f.module);
+                    defer self.allocator.free(mod_slash);
+                    const mod_ident = try self.allocator.dupe(u8, mod_slash);
+                    defer self.allocator.free(mod_ident);
+                    for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
 
-                const mod_var_ident = try std.fmt.allocPrint(self.allocator, "{s}_mod", .{mod_ident});
-                defer self.allocator.free(mod_var_ident);
-                if (!emitted_from_mods.contains(mod_var_ident)) {
-                    try emitted_from_mods.put(try self.allocator.dupe(u8, mod_var_ident), {});
-                    try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+                    const mod_var_ident = try std.fmt.allocPrint(self.allocator, "{s}_mod", .{mod_ident});
+                    defer self.allocator.free(mod_var_ident);
+                    if (!emitted_from_mods.contains(mod_var_ident)) {
+                        try emitted_from_mods.put(try self.allocator.dupe(u8, mod_var_ident), {});
+                        try self.emit("pub const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+                    }
+                    try self.emit("pub const _sundapy_has_decl_{s} = @hasDecl({s}_mod, \"{s}\");\n", .{target_name, mod_ident, f.name});
+                    try self.emit("pub const _sundapy_is_abi_{s} = !_sundapy_has_decl_{s};\n", .{target_name, target_name});
+                    try self.emit("pub const {s} = if (_sundapy_has_decl_{s}) @field({s}_mod, \"{s}\") else void;\n", .{target_name, target_name, mod_ident, f.name});
+                    try self.emit("pub var {s}_dyn: @import(\"{s}datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name, prefix});
                 }
-                try self.emit("pub const _sundapy_has_decl_{s} = @hasDecl({s}_mod, \"{s}\");\n", .{target_name, mod_ident, f.name});
-                try self.emit("pub const _sundapy_is_abi_{s} = !_sundapy_has_decl_{s};\n", .{target_name, target_name});
-                try self.emit("pub const {s} = if (_sundapy_has_decl_{s}) @field({s}_mod, \"{s}\") else void;\n", .{target_name, target_name, mod_ident, f.name});
-                try self.emit("pub var {s}_dyn: @import(\"{s}datatype/dynamic.zig\").Dynamic = undefined;\n", .{target_name, prefix});
             }
         }
-
-
     }
     
     try self.out.appendSlice(self.allocator,
@@ -300,7 +306,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     }
     
     // For python-like scripts, top level statements must be in __sundapy_module_init
-    try self.emit("pub fn __sundapy_module_init() !void {{\n", .{});
+    try self.emit("var _module_initialized: bool = false;\npub fn __sundapy_module_init() anyerror!void {{\n    if (_module_initialized) return;\n    _module_initialized = true;\n", .{});
     self.indent_level += 1;
     const compiler = @import("../core/compiler.zig");
     if (compiler.is_release_fast) {
@@ -329,28 +335,24 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             const base_target_name = if (f.alias) |a| a else f.name;
             const target_name = try self.escapeKeyword(base_target_name);
             defer self.allocator.free(target_name);
-            const mod_slash = try self.getModSlash(f.module);
-            defer self.allocator.free(mod_slash);
-            
-            const mod_ident = try self.allocator.dupe(u8, mod_slash);
-            defer self.allocator.free(mod_ident);
-            for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
-
-            try self.emitIndent();
-            try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_ident, mod_ident});
-            try self.emitIndent();
-            try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {{\n", .{mod_ident});
-            try self.emitIndent();
-            try self.emit("    const _tmp_{s} = {s}_mod.builtin_getattr(\"{s}\");\n", .{target_name, mod_ident, f.name});
-            try self.emitIndent();
-            try self.emit("    {s}_dyn = _tmp_{s};\n", .{target_name, target_name});
-            try self.emitIndent();
-            try self.emit("}}\n", .{});
+            const is_all_dots = (std.mem.indexOfNone(u8, f.module, ".") == null);
+            if (is_all_dots and !std.mem.eql(u8, f.name, "*")) {
+                try self.emitIndent();
+                try self.emit("if (@hasDecl({s}, \"__sundapy_module_init\")) try {s}.__sundapy_module_init();\n", .{target_name, target_name});
+            } else {
+                const mod_slash = try self.getModSlash(f.module);
+                defer self.allocator.free(mod_slash);
+                const mod_ident = try self.allocator.dupe(u8, mod_slash);
+                defer self.allocator.free(mod_ident);
+                for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
+                try self.emitIndent();
+                try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{mod_ident, mod_ident});
+                try self.emitIndent();
+                try self.emit("if (comptime @hasDecl({s}_mod, \"builtin_getattr\")) {s}_dyn = {s}_mod.builtin_getattr(\"{s}\");\n", .{mod_ident, target_name, mod_ident, f.name});
+            }
         }
-
     }
 
-    
     var declared_vars = std.StringHashMap(bool).init(self.allocator);
     defer declared_vars.deinit();
 
@@ -367,23 +369,16 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     self.indent_level -= 1;
     try self.emit("}}\n", .{});
     
-    // Check if `dynamic.` or `Dynamic` is used in the output
-    var needs_dynamic = false;
-    if (std.mem.indexOf(u8, self.out.items, "dynamic.") != null) needs_dynamic = true;
-    if (std.mem.indexOf(u8, self.out.items, " Dynamic") != null) needs_dynamic = true;
-    if (std.mem.indexOf(u8, self.out.items, "(Dynamic") != null) needs_dynamic = true;
-    if (std.mem.indexOf(u8, self.out.items, "Dynamic.") != null) needs_dynamic = true;
-    
-    if (needs_dynamic) {
+    if (std.mem.indexOf(u8, self.out.items, "dynamic.") != null or std.mem.indexOf(u8, self.out.items, " Dynamic") != null or std.mem.indexOf(u8, self.out.items, "(Dynamic") != null or std.mem.indexOf(u8, self.out.items, "Dynamic.") != null) {
         @import("../core/compiler.zig").global_uses_dynamic = true;
     }
     
     const out_str = self.out.items;
     
     const dyn_import_str = if (@import("../core/compiler.zig").global_uses_dynamic)
-        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\nconst int = Dynamic.initStr(\"int\");\nconst @\"float\" = Dynamic.initStr(\"float\");\nconst str = Dynamic.initStr(\"str\");\nconst list = Dynamic.initStr(\"list\");\nconst dict = Dynamic.initStr(\"dict\");\nconst @\"bool\" = Dynamic.initStr(\"bool\");\n\n", .{prefix})
+        try std.fmt.allocPrint(self.allocator, "const dynamic = @import(\"{s}datatype/dynamic.zig\");\nconst Dynamic = dynamic.Dynamic;\nconst int = Dynamic.initStr(\"int\");\nconst @\"float\" = Dynamic.initStr(\"float\");\nconst str = Dynamic.initStr(\"str\");\nconst list = Dynamic.initStr(\"list\");\nconst dict = Dynamic.initStr(\"dict\");\nconst @\"bool\" = Dynamic.initStr(\"bool\");\nconst Ellipsis = dynamic.Ellipsis;\n\n", .{prefix})
     else
-        try std.fmt.allocPrint(self.allocator, "// Pure static mode\nconst Dynamic = void;\n", .{});
+        try std.fmt.allocPrint(self.allocator, "// Pure static mode\nconst Dynamic = void;\nconst Ellipsis = void;\n", .{});
     defer self.allocator.free(dyn_import_str);
         
     const final_out = try std.mem.replaceOwned(u8, self.allocator, out_str, "/// IMPORTS_PLACEHOLDER\n\n", dyn_import_str);

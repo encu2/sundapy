@@ -24,7 +24,9 @@ pub const Transpiler = struct {
     current_func_has_yield: bool = false,
     
     depth: usize = 0,
-    pub fn init(allocator: std.mem.Allocator, is_root: bool, mod_name: []const u8) Transpiler {
+    mod_name: []const u8 = "",
+    is_package: bool = false,
+    pub fn init(allocator: std.mem.Allocator, is_root: bool, mod_name: []const u8, is_package: bool) Transpiler {
         const ea = allocator.create(@import("analysis/escape.zig").EscapeAnalyzer) catch unreachable;
         ea.* = @import("analysis/escape.zig").EscapeAnalyzer.init(allocator);
 
@@ -46,6 +48,8 @@ pub const Transpiler = struct {
             .is_root = is_root,
             .escape_analyzer = ea,
             .depth = d_cnt,
+            .mod_name = mod_name,
+            .is_package = is_package,
         };
     }
     
@@ -98,9 +102,6 @@ pub const Transpiler = struct {
         while (start_idx < mod_name.len and mod_name[start_idx] == '.') {
             start_idx += 1;
         }
-        if (start_idx == mod_name.len) {
-            return try self.allocator.dupe(u8, "___dummy___");
-        }
         var raw = mod_name[start_idx..];
         while (raw.len > 0 and raw[0] == '/') {
             raw = raw[1..];
@@ -108,11 +109,60 @@ pub const Transpiler = struct {
         if (std.mem.endsWith(u8, raw, ".zig")) {
             raw = raw[0 .. raw.len - 4];
         }
-        const mod_slash = try self.allocator.dupe(u8, raw);
-        for (mod_slash) |*c| {
+        const clean_sub = try self.allocator.dupe(u8, raw);
+        defer self.allocator.free(clean_sub);
+        for (clean_sub) |*c| {
             if (c.* == '.') c.* = '/';
         }
-        return mod_slash;
+
+        var canon_mod: []const u8 = clean_sub;
+        var free_canon = false;
+        defer if (free_canon) self.allocator.free(canon_mod);
+
+        if (start_idx > 0) {
+            if (self.mod_name.len == 0) {
+                std.debug.print("ImportError: attempted relative import with no known parent package\n", .{});
+                return error.RelativeImportNoParentPackage;
+            }
+            var base_pkg = self.mod_name;
+            if (!self.is_package) {
+                if (std.mem.lastIndexOfScalar(u8, base_pkg, '.')) |idx| {
+                    base_pkg = base_pkg[0..idx];
+                } else {
+                    base_pkg = "";
+                }
+            }
+            var up_dots = start_idx - 1;
+            while (up_dots > 0 and base_pkg.len > 0) : (up_dots -= 1) {
+                if (std.mem.lastIndexOfScalar(u8, base_pkg, '.')) |idx| {
+                    base_pkg = base_pkg[0..idx];
+                } else {
+                    base_pkg = "";
+                }
+            }
+            if (up_dots > 0 or base_pkg.len == 0) {
+                std.debug.print("ValueError: attempted relative import beyond top-level package\n", .{});
+                return error.RelativeImportBeyondTopLevel;
+            }
+            const base_slash = try std.mem.replaceOwned(u8, self.allocator, base_pkg, ".", "/");
+            defer self.allocator.free(base_slash);
+            if (clean_sub.len > 0) {
+                canon_mod = try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ base_slash, clean_sub });
+            } else {
+                canon_mod = try self.allocator.dupe(u8, base_slash);
+            }
+            free_canon = true;
+        }
+
+        const up = self.depth;
+        const prefix_len = up * 3;
+        var buf = try self.allocator.alloc(u8, prefix_len + canon_mod.len);
+        var i: usize = 0;
+        while (i < up) : (i += 1) {
+            @memcpy(buf[i * 3 .. i * 3 + 3], "../");
+        }
+        @memcpy(buf[prefix_len..], canon_mod);
+        return buf;
     }
     
     pub fn collectImports(self: *Transpiler, stmt: *ast.Node) !void {
@@ -126,11 +176,19 @@ pub const Transpiler = struct {
                 }
             },
             .from_import => |f| {
-                try self.imported_modules.append(self.allocator, f.module);
-                if (f.alias) |a| try self.module_aliases.put(a, f.module);
-                const base_mod = if (std.mem.endsWith(u8, f.module, ".zig") or std.mem.endsWith(u8, f.module, ".h") or std.mem.endsWith(u8, f.module, ".c")) std.fs.path.stem(f.module) else f.module;
-                try self.module_aliases.put(base_mod, f.module);
-                if (std.mem.endsWith(u8, f.module, ".h") or std.mem.endsWith(u8, f.module, ".c")) {
+                var is_all_dots = true;
+                for (f.module) |c| {
+                    if (c != '.') { is_all_dots = false; break; }
+                }
+                const full_mod = if (is_all_dots and !std.mem.eql(u8, f.name, "*"))
+                    try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ f.module, f.name })
+                else
+                    f.module;
+                try self.imported_modules.append(self.allocator, full_mod);
+                if (f.alias) |a| try self.module_aliases.put(a, full_mod);
+                const base_mod = if (std.mem.endsWith(u8, full_mod, ".zig") or std.mem.endsWith(u8, full_mod, ".h") or std.mem.endsWith(u8, full_mod, ".c")) std.fs.path.stem(full_mod) else (if (is_all_dots) f.name else full_mod);
+                try self.module_aliases.put(base_mod, full_mod);
+                if (std.mem.endsWith(u8, full_mod, ".h") or std.mem.endsWith(u8, full_mod, ".c")) {
                     try self.c_imported_modules.put(base_mod, true);
                 }
             },
@@ -188,6 +246,7 @@ pub const Transpiler = struct {
         if (std.mem.eql(u8, python_type, "list")) return "Dynamic";
         if (std.mem.eql(u8, python_type, "dict")) return "Dynamic";
         if (std.mem.eql(u8, python_type, "None")) return "void";
+        if (std.mem.eql(u8, python_type, "...")) return "Dynamic";
         return python_type;
     }
 

@@ -55,6 +55,12 @@ pub fn getAbiAttribute(self: Dynamic, attr: []const u8) Dynamic {
         }
 
         return Dynamic.initNone();
+    } else if (self.value == .float_type) {
+        if (std.mem.eql(u8, attr, "real")) return self;
+        if (std.mem.eql(u8, attr, "imag")) return Dynamic.initFloat(0.0);
+    } else if (self.value == .i64_type) {
+        if (std.mem.eql(u8, attr, "real")) return self;
+        if (std.mem.eql(u8, attr, "imag")) return Dynamic.initInt(0);
     } else if (self.value == .gpu_buffer_type) {
         return @import("gpu_types.zig").bufferGetAttribute(self.value.gpu_buffer_type, attr);
     } else if (self.value == .ffi_obj_type) {

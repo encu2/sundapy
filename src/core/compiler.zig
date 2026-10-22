@@ -10,6 +10,7 @@ pub fn addMissingModule(allocator: std.mem.Allocator, io: std.Io, mod: []const u
     defer global_missing_mutex.unlock(io);
     
     if (!global_missing_initialized) return;
+    if (mod.len > 0 and mod[0] == '.') return;
     
     if (global_failed_modules.contains(mod)) return;
     for (global_missing_modules.items) |item| {
