@@ -59,10 +59,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     for (program.items) |stmt| {
         try self.escape_analyzer.analyzeSecondPass(stmt);
     }
-    
-    try self.emit("const std = @import(\"std\");\n\n", .{});
-    try self.emit("/// IMPORTS_PLACEHOLDER\n\n", .{});
-    
+    try self.emit("const std = @import(\"std\");\n\n/// IMPORTS_PLACEHOLDER\n\n", .{});
     var emitted_from_mods = std.StringHashMap(void).init(self.allocator);
     defer {
         var it_em = emitted_from_mods.keyIterator();
@@ -147,6 +144,11 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
         \\    if (__sundapy_T == comptime_int or @typeInfo(__sundapy_T) == .int) return @as(f64, @floatFromInt(__sundapy_v));
         \\    if (__sundapy_T == comptime_float or @typeInfo(__sundapy_T) == .float) return @as(f64, @floatCast(__sundapy_v));
         \\    return 0.0;
+        \\}
+        \\pub inline fn _sundapy_pow(__sundapy_pa: anytype, __sundapy_pb: anytype) if (@TypeOf(__sundapy_pa) == comptime_float or @typeInfo(@TypeOf(__sundapy_pa)) == .float or @TypeOf(__sundapy_pb) == comptime_float or @typeInfo(@TypeOf(__sundapy_pb)) == .float) f64 else i64 {
+        \\    if (comptime (@TypeOf(__sundapy_pa) == comptime_float or @typeInfo(@TypeOf(__sundapy_pa)) == .float or @TypeOf(__sundapy_pb) == comptime_float or @typeInfo(@TypeOf(__sundapy_pb)) == .float)) return std.math.pow(f64, _sundapy_to_f64(__sundapy_pa), _sundapy_to_f64(__sundapy_pb));
+        \\    const __sundapy_bi: i64 = @intCast(__sundapy_pb);
+        \\    return if (__sundapy_bi < 0) 0 else std.math.pow(i64, @as(i64, @intCast(__sundapy_pa)), @as(usize, @intCast(__sundapy_bi)));
         \\}
         \\pub inline fn _sundapy_to_c_arg(comptime TargetT: type, __sundapy_c_in: anytype) TargetT {
         \\    const ValT = @TypeOf(__sundapy_c_in);
@@ -245,20 +247,24 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
     }
 
     for (program.items) |stmt| {
-        if (stmt.* == .assign) {
-            const a = stmt.assign;
-            if (!global_vars.contains(a.target)) {
-                try global_vars.put(a.target, true);
+        if (stmt.* == .assign or stmt.* == .ann_decl) {
+            const target = if (stmt.* == .assign) stmt.assign.target else stmt.ann_decl.target;
+            const type_ann = if (stmt.* == .assign) stmt.assign.type_ann else stmt.ann_decl.type_ann;
+            if (!global_vars.contains(target)) {
+                try global_vars.put(target, true);
                 if (self.is_strict) {
-                    if (a.type_ann) |t| {
-                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                    if (type_ann) |t| {
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{ target, Transpiler.mapType(t) });
                     } else {
-                        std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{a.target});
+                        std.debug.print("Strict Mode Error: Variable '{s}' requires explicit static type annotation upon initialization.\n", .{target});
                         return error.MissingTypeAnnotation;
                     }
+                } else if (stmt.* == .ann_decl) {
+                    try self.emit("pub var {s}: Dynamic = undefined;\n", .{target});
                 } else {
-                    if (a.type_ann) |t| {
-                        try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, Transpiler.mapType(t)});
+                    const a = stmt.assign;
+                    if (type_ann) |t| {
+                        try self.emit("pub var {s}: {s} = undefined;\n", .{ target, Transpiler.mapType(t) });
                     } else {
                         var struct_type_name: ?[]const u8 = null;
                         if (a.value.* == .method_call and std.mem.eql(u8, a.value.method_call.method, "init")) {
@@ -267,19 +273,18 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                             struct_type_name = resolveStructTypeName(self, program, a.value.call.callee);
                         }
                         if (struct_type_name) |stn| {
-                            try self.emit("pub var {s}: {s} = undefined;\n", .{ a.target, stn });
+                            try self.emit("pub var {s}: {s} = undefined;\n", .{ target, stn });
                             continue;
                         }
 
-                        if (self.escape_analyzer.variables.get(a.target)) |v_info| {
+                        if (self.escape_analyzer.variables.get(target)) |v_info| {
                             if (v_info.class == .stack and v_info.is_primitive) {
-                                // Use inferred primitive type for global
                                 const t = self.escape_analyzer.primitiveTypeString(a.value);
-                                try self.emit("pub var {s}: {s} = undefined;\n", .{a.target, t});
+                                try self.emit("pub var {s}: {s} = undefined;\n", .{ target, t });
                                 continue;
                             }
                         }
-                        try self.emit("pub var {s}: Dynamic = undefined;\n", .{a.target});
+                        try self.emit("pub var {s}: Dynamic = undefined;\n", .{target});
                     }
                 }
             }

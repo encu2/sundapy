@@ -89,6 +89,9 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
         .unary => |u| {
             try analyzeFirstPass(self, u.right);
         },
+        .starred => |s| {
+            try analyzeFirstPass(self, s.value);
+        },
         .call => |c| {
             try analyzeFirstPass(self, c.callee);
             for (c.args.items) |arg| try analyzeFirstPass(self, arg);
@@ -108,6 +111,29 @@ pub fn analyzeFirstPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
             if (t.finally_branch) |fb| {
                 for (fb.items) |stmt| try analyzeFirstPass(self, stmt);
             }
+        },
+        .del_stmt => |d| {
+            if (d.target.* == .identifier) {
+                if (self.variables.getPtr(d.target.identifier.name)) |v| {
+                    v.is_primitive = false;
+                } else {
+                    try self.variables.put(d.target.identifier.name, .{
+                        .name = d.target.identifier.name,
+                        .class = .stack,
+                        .is_primitive = false,
+                    });
+                }
+            }
+        },
+        .compound_stmt => |cs| {
+            for (cs.items.items) |item| try analyzeFirstPass(self, item);
+        },
+        .ann_decl => |ad| {
+            try self.variables.put(ad.target, .{
+                .name = ad.target,
+                .class = .stack,
+                .is_primitive = false,
+            });
         },
         else => {},
     }

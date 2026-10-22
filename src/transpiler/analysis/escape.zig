@@ -48,6 +48,7 @@ pub const EscapeAnalyzer = struct {
             .number, .integer, .float => true,
             .binary => |b| self.isPrimitive(b.left) and self.isPrimitive(b.right),
             .unary => |u| self.isPrimitive(u.right),
+            .starred => |s| self.isPrimitive(s.value),
             .identifier => |i| {
                 if (self.variables.get(i.name)) |v| {
                     return v.is_primitive;
@@ -66,6 +67,7 @@ pub const EscapeAnalyzer = struct {
             .string => return "[]const u8",
             .binary => |b| return self.primitiveTypeString(b.left),
             .unary => |u| return self.primitiveTypeString(u.right),
+            .starred => |s| return self.primitiveTypeString(s.value),
             .identifier => |i| {
                 if (self.variables.get(i.name)) |v| {
                     if (v.is_primitive) return v.primitive_type;

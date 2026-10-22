@@ -58,9 +58,10 @@ pub fn transpileStrictBuiltinCall(self: *Transpiler, c: anytype, name: []const u
         try self.emit(").builtin_type()", .{});
         return true;
     } else if (std.mem.eql(u8, name, "isinstance")) {
-        if (c.args.items.len >= 2 and c.args.items[1].* == .list_expr) {
+        if (c.args.items.len >= 2 and (c.args.items[1].* == .list_expr or c.args.items[1].* == .tuple_expr)) {
+            const elems = if (c.args.items[1].* == .list_expr) c.args.items[1].list_expr.items.items else c.args.items[1].tuple_expr.items.items;
             try self.emit("Dynamic.initBool(", .{});
-            for (c.args.items[1].list_expr.items.items, 0..) |elem, idx| {
+            for (elems, 0..) |elem, idx| {
                 if (idx > 0) try self.emit(" or ", .{});
                 if (elem.* == .identifier) {
                     try self.emit("(", .{});

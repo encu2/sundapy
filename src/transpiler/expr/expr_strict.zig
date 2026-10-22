@@ -43,6 +43,9 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.transpileExprStrict(u.right);
             }
         },
+        .starred => |s| {
+            try self.transpileExprStrict(s.value);
+        },
         .binary => |b| {
             if (try @import("expr_idiom_bit.zig").tryLowerBitwiseIdiom(self, node)) {
                 return;
@@ -70,6 +73,12 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 }
             } else if (std.mem.eql(u8, b.op, "//")) {
                 try self.emit("@divFloor(", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(", ", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(")", .{});
+            } else if (std.mem.eql(u8, b.op, "**")) {
+                try self.emit("_sundapy_pow(", .{});
                 try self.transpileExprStrict(b.left);
                 try self.emit(", ", .{});
                 try self.transpileExprStrict(b.right);
@@ -118,6 +127,18 @@ pub fn transpileExprStrict(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit(", ", .{});
                 try self.transpileExprStrict(b.right);
                 try self.emit(")", .{});
+            } else if (std.mem.eql(u8, b.op, "<<")) {
+                try self.emit("(", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(" << @as(u6, @intCast(", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(")))", .{});
+            } else if (std.mem.eql(u8, b.op, ">>")) {
+                try self.emit("(", .{});
+                try self.transpileExprStrict(b.left);
+                try self.emit(" >> @as(u6, @intCast(", .{});
+                try self.transpileExprStrict(b.right);
+                try self.emit(")))", .{});
             } else {
                 try self.emit("(", .{});
                 try self.transpileExprStrict(b.left);

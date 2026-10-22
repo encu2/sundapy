@@ -97,31 +97,28 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         try self.emit("}})", .{});
         return;
     }
-    const is_string_method = std.mem.eql(u8, m.method, "split") or std.mem.eql(u8, m.method, "replace") or (std.mem.eql(u8, m.method, "join") and m.args.items.len > 0) or std.mem.eql(u8, m.method, "upper") or std.mem.eql(u8, m.method, "lower") or std.mem.eql(u8, m.method, "startswith") or std.mem.eql(u8, m.method, "endswith") or std.mem.eql(u8, m.method, "find") or std.mem.eql(u8, m.method, "strip") or std.mem.eql(u8, m.method, "lstrip") or std.mem.eql(u8, m.method, "rstrip");
-    const is_list_method = std.mem.eql(u8, m.method, "append") or std.mem.eql(u8, m.method, "pop") or std.mem.eql(u8, m.method, "sort") or std.mem.eql(u8, m.method, "insert") or std.mem.eql(u8, m.method, "remove") or std.mem.eql(u8, m.method, "reverse") or std.mem.eql(u8, m.method, "count") or std.mem.eql(u8, m.method, "index") or std.mem.eql(u8, m.method, "clear") or std.mem.eql(u8, m.method, "copy") or std.mem.eql(u8, m.method, "extend");
-    const is_general_method = !(is_string_method or is_list_method);
-    
     var target_is_module = false;
-    if (!is_string_method and !is_list_method) {
-        if (m.target.* == .identifier) {
-            const root_id = m.target.identifier.name;
-            for (self.imported_modules.items) |mod| {
-                if (std.mem.eql(u8, root_id, mod)) { target_is_module = true; break; }
-            }
-            if (!target_is_module and (self.module_aliases.get(root_id) != null or self.classes.contains(root_id) or (root_id.len > 0 and root_id[0] >= 'A' and root_id[0] <= 'Z'))) {
-                target_is_module = true;
-            }
-        } else if (m.target.* == .getattr) {
-            if (getRootId(m.target)) |root_name| {
-                if (self.c_imported_modules.contains(root_name)) {
-                    target_is_module = true;
-                } else if (self.module_aliases.get(root_name)) |orig| {
-                    if (std.mem.endsWith(u8, orig, ".h") or std.mem.endsWith(u8, orig, ".c") or std.mem.endsWith(u8, orig, ".zig")) target_is_module = true;
-                }
-            }
-            if (!target_is_module and (m.target.getattr.attr.len > 0 and m.target.getattr.attr[0] >= 'A' and m.target.getattr.attr[0] <= 'Z')) target_is_module = true;
+    if (m.target.* == .identifier) {
+        const root_id = m.target.identifier.name;
+        for (self.imported_modules.items) |mod| {
+            if (std.mem.eql(u8, root_id, mod)) { target_is_module = true; break; }
         }
+        if (!target_is_module and (self.module_aliases.get(root_id) != null or self.classes.contains(root_id) or (root_id.len > 0 and root_id[0] >= 'A' and root_id[0] <= 'Z'))) {
+            target_is_module = true;
+        }
+    } else if (m.target.* == .getattr) {
+        if (getRootId(m.target)) |root_name| {
+            if (self.c_imported_modules.contains(root_name)) {
+                target_is_module = true;
+            } else if (self.module_aliases.get(root_name)) |orig| {
+                if (std.mem.endsWith(u8, orig, ".h") or std.mem.endsWith(u8, orig, ".c") or std.mem.endsWith(u8, orig, ".zig")) target_is_module = true;
+            }
+        }
+        if (!target_is_module and (m.target.getattr.attr.len > 0 and m.target.getattr.attr[0] >= 'A' and m.target.getattr.attr[0] <= 'Z')) target_is_module = true;
     }
+    const is_string_method = !target_is_module and (std.mem.eql(u8, m.method, "split") or std.mem.eql(u8, m.method, "replace") or (std.mem.eql(u8, m.method, "join") and m.args.items.len > 0) or std.mem.eql(u8, m.method, "upper") or std.mem.eql(u8, m.method, "lower") or std.mem.eql(u8, m.method, "startswith") or std.mem.eql(u8, m.method, "endswith") or std.mem.eql(u8, m.method, "find") or std.mem.eql(u8, m.method, "strip") or std.mem.eql(u8, m.method, "lstrip") or std.mem.eql(u8, m.method, "rstrip"));
+    const is_list_method = !target_is_module and (std.mem.eql(u8, m.method, "append") or std.mem.eql(u8, m.method, "pop") or std.mem.eql(u8, m.method, "sort") or std.mem.eql(u8, m.method, "insert") or std.mem.eql(u8, m.method, "remove") or std.mem.eql(u8, m.method, "reverse") or std.mem.eql(u8, m.method, "count") or std.mem.eql(u8, m.method, "index") or std.mem.eql(u8, m.method, "clear") or std.mem.eql(u8, m.method, "copy") or std.mem.eql(u8, m.method, "extend"));
+    const is_general_method = !target_is_module and !(is_string_method or is_list_method);
     
     if (target_is_module) {
         var is_c_import = false;
@@ -349,11 +346,13 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
     try self.emit("    var _target_{d} = ", .{lid});
     try self.transpileExpr(m.target);
     try self.emit(";\n", .{});
-    try self.emit("    const _res_{d} = try _target_{d}", .{ lid, lid });
+    if (self.try_depth > 0) try self.emit("    const _res_{d} = _target_{d}", .{ lid, lid }) else try self.emit("    const _res_{d} = try _target_{d}", .{ lid, lid });
                              
     if (is_string_method) {
-        if (std.mem.eql(u8, m.method, "split") and m.args.items.len == 0) {
-            try self.emit(".str_split(alloc, null", .{});
+        if (std.mem.eql(u8, m.method, "split")) {
+            if (m.args.items.len == 0) try self.emit(".str_split(alloc, null", .{})
+            else if (m.args.items.len == 1) try self.emit(".str_split(alloc", .{})
+            else try self.emit(".str_split_max(alloc", .{});
         } else if ((std.mem.eql(u8, m.method, "strip") or std.mem.eql(u8, m.method, "lstrip") or std.mem.eql(u8, m.method, "rstrip")) and m.args.items.len == 0) {
             try self.emit(".str_{s}(alloc, null", .{m.method});
         } else {
@@ -383,8 +382,8 @@ pub fn transpileStrictMethodCall(self: *Transpiler, m: anytype) anyerror!void {
         }
     }
     
-    try self.emit(");\n", .{});
-    if (m.target.* == .identifier) {
+    if (self.try_depth > 0) try self.emit(") catch |err_{d}| break :try_blk_{d} err_{d};\n", .{ lid, self.try_depth, lid }) else try self.emit(");\n", .{});
+    if (m.target.* == .identifier and !is_string_method) {
         const escaped = try self.escapeKeyword(m.target.identifier.name);
         defer self.allocator.free(escaped);
         try self.emit("    if (comptime @typeInfo(@TypeOf({s})) != .pointer) {s} = _target_{d};\n", .{ escaped, escaped, lid });

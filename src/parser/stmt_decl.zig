@@ -23,7 +23,7 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
             if (self.match(.Colon)) {
                 _ = try self.parseExpr(.none);
             }
-            params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null }) catch unreachable;
+            params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null, .is_varkw = true }) catch unreachable;
             _ = self.match(.Comma);
             continue;
         } else if (self.match(.Star)) {
@@ -33,13 +33,16 @@ pub fn parseDefStmt(self: *Parser, is_async: bool, decorators: std.ArrayList(*as
                 if (self.match(.Colon)) {
                     _ = try self.parseExpr(.none);
                 }
-                params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null }) catch unreachable;
+                params.append(self.allocator, .{ .name = p_name, .type_ann = null, .default_value = null, .is_vararg = true }) catch unreachable;
             } else {
                 // just a * marker for kw-only args
             }
             _ = self.match(.Comma);
             continue;
         } else if (self.match(.Slash)) {
+            for (params.items) |*p| {
+                p.is_posonly = true;
+            }
             _ = self.match(.Comma);
             continue;
         }

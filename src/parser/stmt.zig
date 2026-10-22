@@ -5,6 +5,11 @@ const Parser = @import("parser.zig").Parser;
 const Precedence = @import("parser.zig").Precedence;
 const TokenType = lexer.TokenType;
 
+const stmt_assign = @import("stmt_assign_parse.zig");
+const isAugAssignOp = stmt_assign.isAugAssignOp;
+const augAssignOpToBinOp = stmt_assign.augAssignOpToBinOp;
+const parseCommaTuple = stmt_assign.parseCommaTuple;
+
     pub fn parseBlock(self: *Parser) anyerror!std.ArrayList(*ast.Node) {
         var stmts: std.ArrayList(*ast.Node) = .empty;
         if (self.match(.Newline)) {
@@ -45,6 +50,31 @@ const TokenType = lexer.TokenType;
         if (self.match(.Ellipsis)) { try self.consumeStmtEnd(); const node = try self.allocator.create(ast.Node); node.* = .ellipsis; return node; }
         if (self.match(.KeywordContinue)) { try self.consumeStmtEnd(); const node = try self.allocator.create(ast.Node); node.* = .continue_stmt; return node; }
         if (self.match(.KeywordBreak)) { try self.consumeStmtEnd(); const node = try self.allocator.create(ast.Node); node.* = .break_stmt; return node; }
+        if (self.match(.KeywordDel)) {
+            const first = try self.parseExpr(.none);
+            if (self.match(.Comma)) {
+                var del_stmts: std.ArrayList(*ast.Node) = .empty;
+                const d1 = try self.allocator.create(ast.Node);
+                d1.* = .{ .del_stmt = .{ .target = first } };
+                try del_stmts.append(self.allocator, d1);
+                while (self.current.type != .Newline and self.current.type != .Semicolon and self.current.type != .EOF and self.current.type != .Dedent) {
+                    const next_target = try self.parseExpr(.none);
+                    const d_next = try self.allocator.create(ast.Node);
+                    d_next.* = .{ .del_stmt = .{ .target = next_target } };
+                    try del_stmts.append(self.allocator, d_next);
+                    if (!self.match(.Comma)) break;
+                }
+                try self.consumeStmtEnd();
+                const comp = try self.allocator.create(ast.Node);
+                comp.* = .{ .compound_stmt = .{ .items = del_stmts } };
+                return comp;
+            } else {
+                try self.consumeStmtEnd();
+                const node = try self.allocator.create(ast.Node);
+                node.* = .{ .del_stmt = .{ .target = first } };
+                return node;
+            }
+        }
         if (self.match(.KeywordAssert)) {
             const cond = try self.parseExpr(.none);
             var msg: ?*ast.Node = null;
@@ -60,6 +90,7 @@ const TokenType = lexer.TokenType;
             var val: ?*ast.Node = null;
             if (self.current.type != .Newline and self.current.type != .Semicolon) {
                 val = try self.parseExpr(.none);
+                if (self.match(.Comma)) val = try parseCommaTuple(self, val.?);
             }
             try self.consumeStmtEnd();
             const node = try self.allocator.create(ast.Node);
@@ -67,10 +98,18 @@ const TokenType = lexer.TokenType;
             return node;
         }
         if (self.match(.KeywordYield)) {
-            const val = try self.parseExpr(.none);
+            var is_from = false;
+            var val: ?*ast.Node = null;
+            if (self.match(.KeywordFrom)) {
+                is_from = true;
+                val = try self.parseExpr(.none);
+            } else if (self.current.type != .Newline and self.current.type != .Semicolon) {
+                val = try self.parseExpr(.none);
+                if (self.match(.Comma)) val = try parseCommaTuple(self, val.?);
+            }
             try self.consumeStmtEnd();
             const node = try self.allocator.create(ast.Node);
-            node.* = .{ .yield_stmt = .{ .value = val } };
+            node.* = .{ .yield_stmt = .{ .value = val, .is_from = is_from } };
             return node;
         }
         if (self.match(.KeywordRaise)) {
@@ -184,27 +223,52 @@ const TokenType = lexer.TokenType;
             return try @import("stmt_import_parse.zig").parseFromImport(self);
         }
 
-        if (self.current.type == .Identifier) {
-            if (self.peek_token.type == .Comma) {
-                var targets: std.ArrayList(*ast.Node) = .empty;
+        const is_first_starred = (self.current.type == .Star and self.peek_token.type == .Identifier);
+        const is_first_ident = (self.current.type == .Identifier and self.peek_token.type == .Comma);
+        if (is_first_starred or is_first_ident) {
+            var targets = std.ArrayList(*ast.Node).empty;
+            if (is_first_starred) {
+                self.advance();
+                const inner = try self.allocator.create(ast.Node);
+                inner.* = .{ .identifier = .{ .name = self.current.lexeme } };
+                self.advance();
+                const s_node = try self.allocator.create(ast.Node);
+                s_node.* = .{ .starred = .{ .value = inner } };
+                try targets.append(self.allocator, s_node);
+            } else {
                 const first_id = try self.allocator.create(ast.Node);
                 first_id.* = .{ .identifier = .{ .name = self.current.lexeme } };
                 try targets.append(self.allocator, first_id);
                 self.advance();
-                while (self.match(.Comma)) {
+            }
+            while (self.match(.Comma)) {
+                if (self.match(.Star)) {
                     if (self.current.type == .Identifier) {
-                        const id = try self.allocator.create(ast.Node);
-                        id.* = .{ .identifier = .{ .name = self.current.lexeme } };
-                        try targets.append(self.allocator, id);
+                        const inner = try self.allocator.create(ast.Node);
+                        inner.* = .{ .identifier = .{ .name = self.current.lexeme } };
                         self.advance();
-                    } else {
-                        break;
-                    }
+                        const s_node = try self.allocator.create(ast.Node);
+                        s_node.* = .{ .starred = .{ .value = inner } };
+                        try targets.append(self.allocator, s_node);
+                    } else break;
+                } else if (self.current.type == .Identifier) {
+                    const id = try self.allocator.create(ast.Node);
+                    id.* = .{ .identifier = .{ .name = self.current.lexeme } };
+                    try targets.append(self.allocator, id);
+                    self.advance();
+                } else break;
+            }
+            if (self.match(.Eq)) {
+                if (is_first_starred and targets.items.len == 1) {
+                    std.debug.print("SyntaxError on line {d}: starred assignment target must be in a list or tuple\n", .{self.current.line});
+                    return error.ParseError;
                 }
-                if (self.match(.Eq)) {
-                    return try @import("stmt_assign_parse.zig").parseTupleAssign(self, targets);
-                }
-            } else if (self.peek_token.type == .Eq) {
+                return try @import("stmt_assign_parse.zig").parseTupleAssign(self, targets);
+            }
+        }
+
+        if (self.current.type == .Identifier) {
+            if (self.peek_token.type == .Eq) {
                 const target = self.current.lexeme;
                 self.advance(); 
                 self.advance(); 
@@ -213,27 +277,17 @@ const TokenType = lexer.TokenType;
                 const node = try self.allocator.create(ast.Node);
                 node.* = .{ .assign = .{ .target = target, .type_ann = null, .value = val } };
                 return node;
-            } else if (self.peek_token.type == .PlusEq or self.peek_token.type == .MinusEq or self.peek_token.type == .StarEq or self.peek_token.type == .SlashEq or self.peek_token.type == .PercentEq) {
+            } else if (isAugAssignOp(self.peek_token.type)) {
                 const target = self.current.lexeme;
                 self.advance();
-                const op_token = self.current;
+                const op = augAssignOpToBinOp(self.current.type);
                 self.advance();
-                
                 const val = try self.parseExpr(.none);
                 try self.consumeStmtEnd();
-                
-                var bin_op: []const u8 = "+";
-                if (op_token.type == .MinusEq) bin_op = "-";
-                if (op_token.type == .StarEq) bin_op = "*";
-                if (op_token.type == .SlashEq) bin_op = "/";
-                if (op_token.type == .PercentEq) bin_op = "%";
-                
                 const target_ident = try self.allocator.create(ast.Node);
                 target_ident.* = .{ .identifier = .{ .name = target } };
-                
                 const desugared_val = try self.allocator.create(ast.Node);
-                desugared_val.* = .{ .binary = .{ .left = target_ident, .op = bin_op, .right = val } };
-                
+                desugared_val.* = .{ .binary = .{ .left = target_ident, .op = op, .right = val } };
                 const node = try self.allocator.create(ast.Node);
                 node.* = .{ .assign = .{ .target = target, .type_ann = null, .value = desugared_val } };
                 return node;
@@ -260,12 +314,18 @@ const TokenType = lexer.TokenType;
                 } else if (type_ann_node.* == .ellipsis) {
                     type_ann = "...";
                 }
-                try self.expect(.Eq);
-                const val = try self.parseExpr(.none);
-                try self.consumeStmtEnd();
-                const node = try self.allocator.create(ast.Node);
-                node.* = .{ .assign = .{ .target = target, .type_ann = type_ann, .value = val } };
-                return node;
+                if (self.match(.Eq)) {
+                    const val = try self.parseExpr(.none);
+                    try self.consumeStmtEnd();
+                    const node = try self.allocator.create(ast.Node);
+                    node.* = .{ .assign = .{ .target = target, .type_ann = type_ann, .value = val } };
+                    return node;
+                } else {
+                    try self.consumeStmtEnd();
+                    const node = try self.allocator.create(ast.Node);
+                    node.* = .{ .ann_decl = .{ .target = target, .type_ann = type_ann } };
+                    return node;
+                }
             } 
         }
 
@@ -277,20 +337,12 @@ const TokenType = lexer.TokenType;
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .setattr = .{ .target = expr.getattr.target, .attr = expr.getattr.attr, .value = val } };
             return node;
-        } else if (expr.* == .getattr and (self.current.type == .PlusEq or self.current.type == .MinusEq or self.current.type == .StarEq or self.current.type == .SlashEq or self.current.type == .PercentEq)) {
-            const op_token = self.current; self.advance();
+        } else if (expr.* == .getattr and isAugAssignOp(self.current.type)) {
+            const op = augAssignOpToBinOp(self.current.type); self.advance();
             const val = try self.parseExpr(.none);
             try self.consumeStmtEnd();
-            
-            var bin_op: []const u8 = "+";
-            if (op_token.type == .MinusEq) bin_op = "-";
-            if (op_token.type == .StarEq) bin_op = "*";
-            if (op_token.type == .SlashEq) bin_op = "/";
-            if (op_token.type == .PercentEq) bin_op = "%";
-            
             const desugared_val = try self.allocator.create(ast.Node);
-            desugared_val.* = .{ .binary = .{ .left = expr, .op = bin_op, .right = val } };
-            
+            desugared_val.* = .{ .binary = .{ .left = expr, .op = op, .right = val } };
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .setattr = .{ .target = expr.getattr.target, .attr = expr.getattr.attr, .value = desugared_val } };
             return node;
@@ -300,20 +352,12 @@ const TokenType = lexer.TokenType;
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .subscript_assign = .{ .target = expr.subscript.target, .index = expr.subscript.index, .value = val } };
             return node;
-        } else if (expr.* == .subscript and (self.current.type == .PlusEq or self.current.type == .MinusEq or self.current.type == .StarEq or self.current.type == .SlashEq or self.current.type == .PercentEq)) {
-            const op_token = self.current; self.advance();
+        } else if (expr.* == .subscript and isAugAssignOp(self.current.type)) {
+            const op = augAssignOpToBinOp(self.current.type); self.advance();
             const val = try self.parseExpr(.none);
             try self.consumeStmtEnd();
-            
-            var bin_op: []const u8 = "+";
-            if (op_token.type == .MinusEq) bin_op = "-";
-            if (op_token.type == .StarEq) bin_op = "*";
-            if (op_token.type == .SlashEq) bin_op = "/";
-            if (op_token.type == .PercentEq) bin_op = "%";
-            
             const desugared_val = try self.allocator.create(ast.Node);
-            desugared_val.* = .{ .binary = .{ .left = expr, .op = bin_op, .right = val } };
-            
+            desugared_val.* = .{ .binary = .{ .left = expr, .op = op, .right = val } };
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .subscript_assign = .{ .target = expr.subscript.target, .index = expr.subscript.index, .value = desugared_val } };
             return node;

@@ -124,6 +124,31 @@ pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
     return error.TypeError;
 }
 
+pub fn delDynamicItem(self: anytype, index: Dynamic) !void {
+    const is_ptr = comptime (@typeInfo(@TypeOf(self)) == .pointer);
+    const self_val = if (is_ptr) self.* else self;
+    if (self_val.value == .dict_type) {
+        if (!self_val.value.dict_type.remove(index)) {
+            return error.KeyError;
+        }
+        return;
+    } else if (self_val.value == .list_type) {
+        if (index.value != .i64_type) return error.TypeError;
+        var idx = index.value.i64_type;
+        const len_i64 = @as(i64, @intCast(self_val.value.list_type.items.items.len));
+        if (idx < 0) idx += len_i64;
+        if (idx < 0 or idx >= len_i64) return error.IndexError;
+        var self_ptr = @constCast(if (is_ptr) self else &self);
+        _ = self_ptr.value.list_type.items.orderedRemove(@intCast(idx));
+        return;
+    } else if (self_val.value == .py_obj_type) {
+        if (self_val.value.py_obj_type) |obj| {
+            return @import("python_abi.zig").sundapyBridge.delDynamicItem(obj, index);
+        }
+    }
+    return error.TypeError;
+}
+
 
 const SliceIndices = struct {
     start: i64,

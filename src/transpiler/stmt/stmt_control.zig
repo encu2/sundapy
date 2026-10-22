@@ -53,80 +53,7 @@ pub fn transpileIfStmt(self: *Transpiler, ifs: anytype, declared_vars: *std.Stri
         try self.emit("\n", .{});
     }
 
-pub fn transpileTryStmt(self: *Transpiler, t: anytype, declared_vars: *std.StringHashMap(bool), strict_funcs: *std.StringHashMap(bool)) anyerror!void {
-        try self.emit("{{\n", .{});
-        self.indent_level += 1;
-        
-        if (t.finally_branch) |fb| {
-            try self.emitIndent();
-            try self.emit("defer {{\n", .{});
-            self.indent_level += 1;
-            for (fb.items) |stmt| {
-                try self.transpileStmt(stmt, declared_vars, strict_funcs);
-            }
-            self.indent_level -= 1;
-            try self.emitIndent();
-            try self.emit("}}\n", .{});
-        }
-        
-        self.try_depth += 1;
-        const current_depth = self.try_depth;
-        
-        try self.emitIndent();
-        try self.emit("const _result_try_{d}: anyerror!void = try_blk_{d}: {{\n", .{current_depth, current_depth});
-        self.indent_level += 1;
-        
-        try self.emitIndent();
-        try self.emit("var _force_err_{d} = false; _ = &_force_err_{d};\n", .{current_depth, current_depth});
-        try self.emitIndent();
-        try self.emit("if (_force_err_{d}) break :try_blk_{d} error.Exception;\n", .{current_depth, current_depth});
-        
-        for (t.body.items) |stmt| {
-            try self.transpileStmt(stmt, declared_vars, strict_funcs);
-        }
-        if (t.body.items.len > 0) {
-            if (t.body.items[t.body.items.len - 1].* != .return_stmt) {
-                try self.emitIndent();
-                try self.emit("break :try_blk_{d} {{}};\n", .{current_depth});
-            }
-        } else {
-            try self.emitIndent();
-            try self.emit("break :try_blk_{d} {{}};\n", .{current_depth});
-        }
-
-        self.indent_level -= 1;
-        try self.emitIndent();
-        try self.emit("}};\n", .{});
-        
-        try self.emitIndent();
-        try self.emit("_result_try_{d} catch {{\n", .{current_depth});
-        self.indent_level += 1;
-
-        
-        self.try_depth -= 1;
-        
-        if (t.except_as) |as_name| {
-            try self.emitIndent();
-            if (self.is_strict) {
-                try self.emit("var {s}: []const u8 = \"Exception\"; _ = &{s};\n", .{ as_name, as_name });
-            } else {
-                try self.emit("var {s} = Dynamic.initStr(\"Exception\"); _ = &{s};\n", .{ as_name, as_name });
-            }
-            try declared_vars.put(as_name, true);
-        }
-
-        if (t.except_branch) |eb| {
-            for (eb.items) |stmt| {
-                try self.transpileStmt(stmt, declared_vars, strict_funcs);
-            }
-        }
-        self.indent_level -= 1;
-        try self.emitIndent();
-        try self.emit("}};\n", .{});
-        self.indent_level -= 1;
-        try self.emitIndent();
-        try self.emit("}}\n", .{});
-    }
+pub const transpileTryStmt = @import("stmt_try.zig").transpileTryStmt;
 
 pub fn transpileWhileStmt(self: *Transpiler, w: anytype, declared_vars: *std.StringHashMap(bool), strict_funcs: *std.StringHashMap(bool)) anyerror!void {
         try self.emit("while (", .{});
@@ -174,7 +101,8 @@ pub fn transpileForStmt(self: *Transpiler, f: anytype, declared_vars: *std.Strin
         if (pre_has_comma) {
             var it_decl = std.mem.splitSequence(u8, pre_iter_str_raw, ",");
             while (it_decl.next()) |item_raw| {
-                const item = std.mem.trim(u8, item_raw, " ");
+                var item = std.mem.trim(u8, item_raw, " ");
+                while (item.len > 0 and (item[0] == '*' or item[0] == ' ')) item = item[1..];
                 if (item.len == 0) continue;
                 if (!declared_vars.contains(item)) {
                     // try declared_vars.put(item, true);
@@ -220,14 +148,56 @@ pub fn transpileForStmt(self: *Transpiler, f: anytype, declared_vars: *std.Strin
             
             try self.emit("var {s} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{unpack_var, self.indent_level - 1, self.indent_level - 1});
             
+            var it_count = std.mem.splitSequence(u8, iter_str_raw, ",");
+            var total_targets: usize = 0;
+            var star_idx: ?usize = null;
+            while (it_count.next()) |part_raw| {
+                const part = std.mem.trim(u8, part_raw, " ");
+                if (part.len == 0) continue;
+                if (std.mem.startsWith(u8, part, "*")) star_idx = total_targets;
+                total_targets += 1;
+            }
+
             var it_decl = std.mem.splitSequence(u8, iter_str_raw, ",");
             var item_idx: usize = 0;
-            while (it_decl.next()) |item_raw| {
-                const item = std.mem.trim(u8, item_raw, " ");
-                if (item.len == 0) continue;
-                try self.emitIndent();
-                try self.emit("{s} = try {s}.getDynamicItem(dynamic.Dynamic{{ .value = .{{ .i64_type = {d} }} }});\n", .{item, unpack_var, item_idx});
-                item_idx += 1;
+            if (star_idx) |s_idx| {
+                const suffix_count = total_targets - 1 - s_idx;
+                while (it_decl.next()) |item_raw| {
+                    const item = std.mem.trim(u8, item_raw, " ");
+                    if (item.len == 0) continue;
+                    try self.emitIndent();
+                    if (item_idx < s_idx) {
+                        try self.emit("{s} = {s}.getItem({d});\n", .{ item, unpack_var, item_idx });
+                    } else if (item_idx == s_idx) {
+                        const star_name = std.mem.trimStart(u8, item, "* ");
+                        const lid = self.indent_level;
+                        try self.emit("var _star_list_{d} = Dynamic.initList(.empty);\n", .{lid});
+                        try self.emitIndent();
+                        try self.emit("const _star_end_{d} = if ({s}.len() >= {d}) {s}.len() - {d} else {d};\n", .{ lid, unpack_var, suffix_count, unpack_var, suffix_count, s_idx });
+                        try self.emitIndent();
+                        try self.emit("var _star_i_{d}: usize = {d};\n", .{ lid, s_idx });
+                        try self.emitIndent();
+                        try self.emit("while (_star_i_{d} < _star_end_{d}) : (_star_i_{d} += 1) {{\n", .{ lid, lid, lid });
+                        try self.emitIndent();
+                        try self.emit("    _star_list_{d}.value.list_type.items.append(alloc, {s}.getItem(_star_i_{d})) catch unreachable;\n", .{ lid, unpack_var, lid });
+                        try self.emitIndent();
+                        try self.emit("}}\n", .{});
+                        try self.emitIndent();
+                        try self.emit("{s} = _star_list_{d};\n", .{ star_name, lid });
+                    } else {
+                        const from_end = total_targets - item_idx;
+                        try self.emit("{s} = {s}.getItem({s}.len() - {d});\n", .{ item, unpack_var, unpack_var, from_end });
+                    }
+                    item_idx += 1;
+                }
+            } else {
+                while (it_decl.next()) |item_raw| {
+                    const item = std.mem.trim(u8, item_raw, " ");
+                    if (item.len == 0) continue;
+                    try self.emitIndent();
+                    try self.emit("{s} = try {s}.getDynamicItem(dynamic.Dynamic{{ .value = .{{ .i64_type = {d} }} }});\n", .{item, unpack_var, item_idx});
+                    item_idx += 1;
+                }
             }
         } else {
             if (self.is_strict) {

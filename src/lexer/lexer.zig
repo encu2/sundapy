@@ -271,12 +271,20 @@ pub const Lexer = struct {
                     return .{ .type = .Minus, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
                 '*' => {
-                    if (self.peek() == '*') { _ = self.advance(); return .{ .type = .StarStar, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    if (self.peek() == '*') {
+                        _ = self.advance();
+                        if (self.peek() == '=') { _ = self.advance(); return .{ .type = .StarStarEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                        return .{ .type = .StarStar, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     if (self.peek() == '=') { _ = self.advance(); return .{ .type = .StarEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
                     return .{ .type = .Star, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
                 '/' => {
-                    if (self.peek() == '/') { _ = self.advance(); return .{ .type = .SlashSlash, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    if (self.peek() == '/') {
+                        _ = self.advance();
+                        if (self.peek() == '=') { _ = self.advance(); return .{ .type = .SlashSlashEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                        return .{ .type = .SlashSlash, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     if (self.peek() == '=') { _ = self.advance(); return .{ .type = .SlashEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
                     return .{ .type = .Slash, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
@@ -294,17 +302,34 @@ pub const Lexer = struct {
                 },
                 '<' => {
                     if (self.peek() == '=') { _ = self.advance(); return .{ .type = .LtEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
-                    if (self.peek() == '<') { _ = self.advance(); return .{ .type = .LtLt, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    if (self.peek() == '<') {
+                        _ = self.advance();
+                        if (self.peek() == '=') { _ = self.advance(); return .{ .type = .LShiftEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                        return .{ .type = .LtLt, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     return .{ .type = .Lt, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
                 '>' => {
                     if (self.peek() == '=') { _ = self.advance(); return .{ .type = .GtEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
-                    if (self.peek() == '>') { _ = self.advance(); return .{ .type = .GtGt, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    if (self.peek() == '>') {
+                        _ = self.advance();
+                        if (self.peek() == '=') { _ = self.advance(); return .{ .type = .RShiftEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                        return .{ .type = .GtGt, .lexeme = self.source[start..self.pos], .line = self.line };
+                    }
                     return .{ .type = .Gt, .lexeme = self.source[start..self.pos], .line = self.line };
                 },
-                '|' => return .{ .type = .Pipe, .lexeme = self.source[start..self.pos], .line = self.line },
-                '^' => return .{ .type = .Caret, .lexeme = self.source[start..self.pos], .line = self.line },
-                '&' => return .{ .type = .Ampersand, .lexeme = self.source[start..self.pos], .line = self.line },
+                '|' => {
+                    if (self.peek() == '=') { _ = self.advance(); return .{ .type = .PipeEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    return .{ .type = .Pipe, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
+                '^' => {
+                    if (self.peek() == '=') { _ = self.advance(); return .{ .type = .CaretEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    return .{ .type = .Caret, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
+                '&' => {
+                    if (self.peek() == '=') { _ = self.advance(); return .{ .type = .AmpersandEq, .lexeme = self.source[start..self.pos], .line = self.line }; }
+                    return .{ .type = .Ampersand, .lexeme = self.source[start..self.pos], .line = self.line };
+                },
                 '~' => return .{ .type = .Tilde, .lexeme = self.source[start..self.pos], .line = self.line },
                 ':' => {
                     if (self.peek() == '=') { _ = self.advance(); return .{ .type = .ColonEq, .lexeme = self.source[start..self.pos], .line = self.line }; }

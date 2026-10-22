@@ -4,11 +4,21 @@ const methods_case = @import("../sequence/string/methods_case.zig");
 const methods_split = @import("../sequence/string/methods_split.zig");
 
 pub fn str_split(self: Dynamic, allocator: std.mem.Allocator, sep: ?Dynamic) !Dynamic {
+    return str_split_max(self, allocator, sep, null);
+}
+
+pub fn str_split_max(self: Dynamic, allocator: std.mem.Allocator, sep: ?Dynamic, maxsplit: ?Dynamic) !Dynamic {
     if (self.value != .str_type) return error.TypeError;
+
+    const max_s: isize = if (maxsplit) |ms| switch (ms.value) {
+        .i64_type => |i| @intCast(i),
+        .i32_type => |i| @intCast(i),
+        else => -1,
+    } else -1;
 
     if (sep) |s| {
         if (s.value == .str_type) {
-            var slices = try methods_split.split(allocator, self.value.str_type, s.value.str_type);
+            var slices = try methods_split.split(allocator, self.value.str_type, s.value.str_type, max_s);
             defer slices.deinit(allocator);
 
             var dynamic_list: std.ArrayList(Dynamic) = .empty;
@@ -21,7 +31,7 @@ pub fn str_split(self: Dynamic, allocator: std.mem.Allocator, sep: ?Dynamic) !Dy
         }
     }
 
-    var slices = try methods_split.splitWhitespace(allocator, self.value.str_type);
+    var slices = try methods_split.splitWhitespace(allocator, self.value.str_type, max_s);
     defer slices.deinit(allocator);
 
     var dynamic_list: std.ArrayList(Dynamic) = .empty;

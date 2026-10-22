@@ -4,11 +4,12 @@ const ast = @import("../../core/ast.zig");
 
 pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
     switch (node.*) {
-        .number, .integer, .float, .string, .fstring, .tstring, .dstring, .await_expr, .assign_expr, .global_decl, .del_stmt, .nonlocal_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
+        .number, .integer, .float, .string, .fstring, .tstring, .dstring, .await_expr, .assign_expr, .global_decl, .del_stmt, .ann_decl, .nonlocal_decl, .continue_stmt, .break_stmt, .pass_stmt, .directive_strict, .none => return false,
         .ellipsis => return false,
         .dummy_expr => return false,
         .identifier => |i| return std.mem.eql(u8, i.name, func_name),
         .unary => |u| return isRecursive(u.right, func_name),
+        .starred => |s| return isRecursive(s.value, func_name),
         .binary => |b| return isRecursive(b.left, func_name) or isRecursive(b.right, func_name),
         .coalesce_expr => |c| return isRecursive(c.left, func_name) or isRecursive(c.right, func_name),
         .assign => |a| return isRecursive(a.value, func_name),
@@ -212,7 +213,13 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
             if (s.step) |n| try collectClassFields(allocator, n, fields);
             try collectClassFields(allocator, s.value, fields);
         },
-        .assign => |a| try collectClassFields(allocator, a.value, fields),
+        .assign => |a| {
+            try fields.put(a.target, true);
+            try collectClassFields(allocator, a.value, fields);
+        },
+        .ann_decl => |ad| {
+            try fields.put(ad.target, true);
+        },
         .const_assign => |c| try collectClassFields(allocator, c.value, fields),
         .return_stmt => |r| {
             if (r.value) |v| try collectClassFields(allocator, v, fields);
@@ -221,6 +228,7 @@ pub fn collectClassFields(allocator: std.mem.Allocator, node: *ast.Node, fields:
             if (r.value) |v| try collectClassFields(allocator, v, fields);
         },
         .unary => |u| try collectClassFields(allocator, u.right, fields),
+        .starred => |s| try collectClassFields(allocator, s.value, fields),
         .binary => |b| {
             try collectClassFields(allocator, b.left, fields);
             try collectClassFields(allocator, b.right, fields);

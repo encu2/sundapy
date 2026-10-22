@@ -95,6 +95,12 @@ const mapping = @import("../mapping.zig");
             if (idx < 0) idx += len_i64;
             if (idx < 0 or idx >= len_i64) std.debug.panic("IndexError: pop index out of range\n", .{});
             return self.value.list_type.items.orderedRemove(@intCast(idx));
+        } else if (self.value == .dict_type) {
+            if (self.value.dict_type.get(index)) |val| {
+                _ = self.value.dict_type.remove(index);
+                return val;
+            }
+            return error.KeyError;
         } else if (self.value == .py_obj_type) {
             const args = [_]Dynamic{index};
             return try self.builtin_getattr("pop").builtin_call(std.heap.c_allocator, &args, null);

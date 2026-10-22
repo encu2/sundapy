@@ -13,7 +13,11 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 try self.parseExpr(.logicalOr)
             else
                 try parsePrefix(self);
-            node.* = .{ .unary = .{ .op = op, .right = right } };
+            if (t == .Star) {
+                node.* = .{ .starred = .{ .value = right } };
+            } else {
+                node.* = .{ .unary = .{ .op = op, .right = right } };
+            }
         },
         .KeywordAwait => {
             self.advance();
@@ -281,13 +285,15 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
         },
         .KeywordYield => {
             self.advance();
+            var is_from = false;
             var val: ?*ast.Node = null;
             if (self.match(.KeywordFrom)) {
+                is_from = true;
                 val = try self.parseExpr(.none);
             } else if (self.current.type != .Newline and self.current.type != .RParen and self.current.type != .Semicolon and self.current.type != .RBracket and self.current.type != .RBrace) {
                 val = try self.parseExpr(.none);
             }
-            node.* = .{ .yield_expr = .{ .value = val } };
+            node.* = .{ .yield_expr = .{ .value = val, .is_from = is_from } };
         },
         .KeywordLambda => {
             // lambda args: body -- consume until newline or closing bracket

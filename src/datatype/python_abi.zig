@@ -298,6 +298,7 @@ pub const sundapyBridge = struct {
     pub const getString = conv.getString;
     pub const getDynamicItem = conv.getDynamicItem;
     pub const setDynamicItem = conv.setDynamicItem;
+    pub const delDynamicItem = conv.delDynamicItem;
     pub const getDynamicSlice = conv.getDynamicSlice;
     pub const doMath = conv.doMath;
     pub const doMathReverse = conv.doMathReverse;

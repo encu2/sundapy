@@ -274,6 +274,41 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
             .getattr => |g| try @import("expr_access.zig").transpileGetattr(self, g),
             .safe_getattr => |g| try @import("expr_access.zig").transpileSafeGetattr(self, g),
             .coalesce_expr => |c| try @import("expr_access.zig").transpileCoalesceExpr(self, c),
+            .yield_expr => |y| {
+                if (y.is_from) {
+                    self.label_counter += 1;
+                    const lid = self.label_counter;
+                    try self.emit("(blk_{d}: {{\n", .{lid});
+                    try self.emit("    _has_yielded = true;\n", .{});
+                    try self.emit("    var _subiter_{d} = ", .{lid});
+                    if (y.value) |v| {
+                        try self.transpileExpr(v);
+                    } else {
+                        try self.emit("Dynamic.initNone()", .{});
+                    }
+                    try self.emit(";\n", .{});
+                    try self.emit("    var _subiter_idx_{d}: usize = 0;\n", .{lid});
+                    try self.emit("    while (_subiter_idx_{d} < _subiter_{d}.len()) : (_subiter_idx_{d} += 1) {{\n", .{ lid, lid, lid });
+                    try self.emit("        _yield_list.value.list_type.items.append(alloc, _subiter_{d}.getItem(_subiter_idx_{d})) catch unreachable;\n", .{ lid, lid });
+                    try self.emit("    }}\n", .{});
+                    try self.emit("    break :blk_{d} Dynamic.initNone();\n", .{lid});
+                    try self.emit("}})", .{});
+                } else {
+                    self.label_counter += 1;
+                    const lid = self.label_counter;
+                    try self.emit("(blk_{d}: {{\n", .{lid});
+                    try self.emit("    _has_yielded = true;\n", .{});
+                    try self.emit("    _yield_list.value.list_type.items.append(alloc, ", .{});
+                    if (y.value) |v| {
+                        try self.transpileExpr(v);
+                    } else {
+                        try self.emit("Dynamic.initNone()", .{});
+                    }
+                    try self.emit(") catch unreachable;\n", .{});
+                    try self.emit("    break :blk_{d} Dynamic.initNone();\n", .{lid});
+                    try self.emit("}})", .{});
+                }
+            },
             else => try self.transpileExprStrict(node),
         }
     } else {
