@@ -15,6 +15,17 @@ fn isClassInstantiation(node: *ast.Node) bool {
     }
 }
 
+fn collectTargetVars(target: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
+    switch (target.*) {
+        .identifier => |id| try vars.put(id.name, true),
+        .starred => |s| try collectTargetVars(s.value, vars),
+        .list_expr, .tuple_expr => |lt| {
+            for (lt.items.items) |item| try collectTargetVars(item, vars);
+        },
+        else => {},
+    }
+}
+
 fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
     switch (node.*) {
         .assign => |a| {
@@ -24,6 +35,13 @@ fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
                 try vars.put(a.target, true);
             }
             try collectVars(a.value, vars);
+        },
+        .tuple_assign => |ta| {
+            for (ta.targets.items) |tgt| try collectTargetVars(tgt, vars);
+            try collectVars(ta.value, vars);
+        },
+        .compound_stmt => |cs| {
+            for (cs.items.items) |stmt| try collectVars(stmt, vars);
         },
         .ann_decl => |ad| {
             try vars.put(ad.target, true);
@@ -69,8 +87,14 @@ fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
         },
         .try_stmt => |t| {
             for (t.body.items) |stmt| try collectVars(stmt, vars);
+            for (t.except_clauses.items) |c| {
+                for (c.body.items) |stmt| try collectVars(stmt, vars);
+            }
             if (t.except_branch) |eb| {
                 for (eb.items) |stmt| try collectVars(stmt, vars);
+            }
+            if (t.else_branch) |elb| {
+                for (elb.items) |stmt| try collectVars(stmt, vars);
             }
             if (t.finally_branch) |fb| {
                 for (fb.items) |stmt| try collectVars(stmt, vars);
@@ -123,7 +147,12 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
     if (d.is_async) {
         try self.emit("pub fn {s}(", .{d.name});
         for (d.params.items, 0..) |p, idx| {
-            try self.emit("{s}: Dynamic", .{p.name});
+            const p_name = if (global_vars.contains(p.name))
+                try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name})
+            else
+                try self.allocator.dupe(u8, p.name);
+            defer self.allocator.free(p_name);
+            try self.emit("{s}: Dynamic", .{p_name});
             if (idx < d.params.items.len - 1) try self.emit(", ", .{});
         }
         try self.emit(") anyerror!Dynamic {{\n", .{});
@@ -134,7 +163,12 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
         try self.emit("_ = &_args;\n", .{});
         for (d.params.items) |p| {
             try self.emitIndent();
-            try self.emit("try _args.append(alloc, {s});\n", .{p.name});
+            const p_name = if (global_vars.contains(p.name))
+                try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name})
+            else
+                try self.allocator.dupe(u8, p.name);
+            defer self.allocator.free(p_name);
+            try self.emit("try _args.append(alloc, {s});\n", .{p_name});
         }
         try self.emitIndent();
         try self.emit("return try @import(\"asyncio.zig\").createTask({s}_async_impl, _args.items);\n", .{d.name});
@@ -147,9 +181,18 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
         if (d.params.items.len == 0) try self.emit("_ = _args;\n", .{});
         for (d.params.items, 0..) |p, idx| {
             try self.emitIndent();
-            try self.emit("var {s} = _args[{d}];\n", .{p.name, idx});
-            try self.emitIndent();
-            try self.emit("_ = &{s};\n", .{p.name});
+            if (global_vars.contains(p.name)) {
+                const v_ident = try std.fmt.allocPrint(self.allocator, "__sundapy_v_{s}", .{p.name});
+                defer self.allocator.free(v_ident);
+                try self.emit("var {s} = _args[{d}];\n", .{ v_ident, idx });
+                try self.emitIndent();
+                try self.emit("_ = &{s};\n", .{v_ident});
+                try self.scoped_aliases.put(p.name, try self.allocator.dupe(u8, v_ident));
+            } else {
+                try self.emit("var {s} = _args[{d}];\n", .{ p.name, idx });
+                try self.emitIndent();
+                try self.emit("_ = &{s};\n", .{p.name});
+            }
         }
     } else {
         if (can_inline) {
@@ -163,7 +206,12 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
                 std.debug.print("Strict Mode Error: Parameter '{s}' requires explicit static type annotation.\n", .{p.name});
                 return error.MissingTypeAnnotation;
             };
-            try self.emit("{s}: {s}", .{p.name, p_type});
+            const p_name = if (global_vars.contains(p.name))
+                try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name})
+            else
+                try self.allocator.dupe(u8, p.name);
+            defer self.allocator.free(p_name);
+            try self.emit("{s}: {s}", .{ p_name, p_type });
             if (idx < d.params.items.len - 1) try self.emit(", ", .{});
         }
         
@@ -191,9 +239,22 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
     
     for (d.params.items) |p| {
         try self.emitIndent();
-        const esc_p = try self.escapeKeyword(p.name);
-        defer self.allocator.free(esc_p);
-        try self.emit("_ = if (true) {s} else {{}};\n", .{esc_p});
+        if (global_vars.contains(p.name)) {
+            const p_ident = try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name});
+            defer self.allocator.free(p_ident);
+            const v_ident = try std.fmt.allocPrint(self.allocator, "__sundapy_v_{s}", .{p.name});
+            defer self.allocator.free(v_ident);
+            try self.emit("_ = if (true) {s} else {{}};\n", .{p_ident});
+            try self.emitIndent();
+            try self.emit("var {s} = {s};\n", .{ v_ident, p_ident });
+            try self.emitIndent();
+            try self.emit("_ = &{s};\n", .{v_ident});
+            try self.scoped_aliases.put(p.name, try self.allocator.dupe(u8, v_ident));
+        } else {
+            const esc_p = try self.escapeKeyword(p.name);
+            defer self.allocator.free(esc_p);
+            try self.emit("_ = if (true) {s} else {{}};\n", .{esc_p});
+        }
     }
 
     var declared_vars = std.StringHashMap(bool).init(self.allocator);
@@ -211,6 +272,10 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
     for (d.body.items) |stmt| {
         if (stmt.* == .assign) {
             try top_level_assigned.put(stmt.assign.target, true);
+        } else if (stmt.* == .tuple_assign) {
+            for (stmt.tuple_assign.targets.items) |tgt| {
+                try collectTargetVars(tgt, &top_level_assigned);
+            }
         }
     }
     
@@ -224,10 +289,8 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
             if (global_vars.contains(v)) continue;
             // Skip vars assigned at top level of function body; they will be declared with proper type inference at assignment site!
             if (top_level_assigned.contains(v)) continue;
-            // In non-strict mode, skip vars that escape analysis identifies as stack primitives.
-            // Those will be declared inline at their first assignment site with the correct primitive type.
-            if (self.escape_analyzer.variables.get(v)) |v_info| {
-                if (v_info.class == .stack and v_info.is_primitive) continue;
+            if (self.escape_analyzer.variables.getPtr(v)) |v_info| {
+                v_info.is_primitive = false;
             }
             try declared_vars.put(v, true);
             try self.emitIndent();
@@ -292,6 +355,14 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
         }
     }
     
+    for (d.params.items) |p| {
+        if (global_vars.contains(p.name)) {
+            if (self.scoped_aliases.fetchRemove(p.name)) |entry| {
+                self.allocator.free(entry.value);
+            }
+        }
+    }
+
     self.indent_level -= 1;
     try self.emit("}}\n\n", .{});
     self.is_strict = orig_strict;

@@ -146,7 +146,8 @@ pub fn transpileDel(self: *Transpiler, d: anytype) !void {
             }
         },
         .identifier => |id| {
-            const name = try self.escapeKeyword(id.name);
+            const raw_name = self.scoped_aliases.get(id.name) orelse id.name;
+            const name = try self.escapeKeyword(raw_name);
             defer self.allocator.free(name);
             var is_stack_primitive = false;
             if (self.escape_analyzer.variables.get(id.name)) |v_info| {

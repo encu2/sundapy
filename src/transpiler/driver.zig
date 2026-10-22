@@ -10,11 +10,7 @@ fn isModOrAlias(self: *Transpiler, name: []const u8) bool {
 
 fn isFromImport(program: std.ArrayList(*ast.Node), name: []const u8) bool {
     for (program.items) |stmt| {
-        if (stmt.* == .from_import) {
-            const f = stmt.from_import;
-            const target = if (f.alias) |a| a else f.name;
-            if (std.mem.eql(u8, target, name)) return true;
-        }
+        if (stmt.* == .from_import and std.mem.eql(u8, if (stmt.from_import.alias) |a| a else stmt.from_import.name, name)) return true;
     }
     return false;
 }
@@ -28,6 +24,22 @@ fn resolveStructTypeName(self: *Transpiler, program: std.ArrayList(*ast.Node), n
         },
         else => null,
     };
+}
+
+fn emitGlobalTupleTarget(self: *Transpiler, tgt: *ast.Node, global_vars: *std.StringHashMap(bool)) anyerror!void {
+    switch (tgt.*) {
+        .identifier => |id| {
+            if (!global_vars.contains(id.name)) {
+                try global_vars.put(id.name, true);
+                try self.emit("pub var {s}: Dynamic = undefined;\n", .{id.name});
+            }
+        },
+        .starred => |s| try emitGlobalTupleTarget(self, s.value, global_vars),
+        .list_expr, .tuple_expr => |lt| {
+            for (lt.items.items) |item| try emitGlobalTupleTarget(self, item, global_vars);
+        },
+        else => {},
+    }
 }
 
 pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const u8 {
@@ -167,17 +179,10 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
         \\    return __sundapy_c_in;
         \\}
         \\pub inline fn _sundapy_param_type(comptime fn_info: anytype, comptime idx: usize) ?type {
-        \\    if (idx < fn_info.params.len) {
-        \\        return fn_info.params[idx].type;
-        \\    }
-        \\    return null;
+        \\    return if (idx < fn_info.params.len) fn_info.params[idx].type else null;
         \\}
         \\pub inline fn _sundapy_cast_param(comptime OptT: ?type, __sundapy_c_in: anytype) if (OptT) |T| T else @TypeOf(__sundapy_c_in) {
-        \\    if (comptime OptT) |T| {
-        \\        return _sundapy_to_c_arg(T, __sundapy_c_in);
-        \\    } else {
-        \\        return __sundapy_c_in;
-        \\    }
+        \\    return if (comptime OptT) |T| _sundapy_to_c_arg(T, __sundapy_c_in) else __sundapy_c_in;
         \\}
         \\pub var alloc: std.mem.Allocator = undefined;
         \\
@@ -208,11 +213,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
         \\    }} else if (comptime __sundapy_is_str_a != __sundapy_is_str_b) {{
         \\        return false;
         \\    }} else if (comptime (@typeInfo(__sundapy_TA) == .int or __sundapy_TA == comptime_int) and (@typeInfo(__sundapy_TB) == .int or __sundapy_TB == comptime_int)) {{
-        \\        if (comptime __sundapy_TA == __sundapy_TB) {{
-        \\            return __sundapy_a == __sundapy_b;
-        \\        }} else {{
-        \\            return @as(i128, __sundapy_a) == @as(i128, __sundapy_b);
-        \\        }}
+        \\        return if (comptime __sundapy_TA == __sundapy_TB) __sundapy_a == __sundapy_b else @as(i128, __sundapy_a) == @as(i128, __sundapy_b);
         \\    }} else if (comptime (@typeInfo(__sundapy_TA) == .float or __sundapy_TA == comptime_float) and (@typeInfo(__sundapy_TB) == .int or __sundapy_TB == comptime_int)) {{
         \\        return __sundapy_a == @as(f64, @floatFromInt(__sundapy_b));
         \\    }} else if (comptime (@typeInfo(__sundapy_TA) == .int or __sundapy_TA == comptime_int) and (@typeInfo(__sundapy_TB) == .float or __sundapy_TB == comptime_float)) {{
@@ -224,16 +225,11 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
         \\pub inline fn _sundapy_ne(__sundapy_a: anytype, __sundapy_b: anytype) bool {{
         \\    return !_sundapy_eq(__sundapy_a, __sundapy_b);
         \\}}
-        \\
-        \\
     , .{name_str});
     defer self.allocator.free(sundapy_header);
     try self.out.appendSlice(self.allocator, sundapy_header);
-    
-    // Output global variables for all top-level assignments
     var global_vars = std.StringHashMap(bool).init(self.allocator);
     defer global_vars.deinit();
-    
     var strict_funcs = std.StringHashMap(bool).init(self.allocator);
     defer strict_funcs.deinit();
     
@@ -288,14 +284,16 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                     }
                 }
             }
-        } else if (stmt.* == .const_assign) {
-            // Actually const assignment needs a value, but we can just let it be in main()
-            // unless functions need them. We will just put everything in main for const for now.
-        } else if (stmt.* == .def_stmt) {
-            const d = stmt.def_stmt;
-            if (d.is_strict or self.is_strict) {
-                try strict_funcs.put(d.name, true);
+        } else if (stmt.* == .tuple_assign) {
+            for (stmt.tuple_assign.targets.items) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
+        } else if (stmt.* == .compound_stmt) {
+            for (stmt.compound_stmt.items.items) |cs| {
+                if (cs.* == .tuple_assign) {
+                    for (cs.tuple_assign.targets.items) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
+                }
             }
+        } else if (stmt.* == .def_stmt) {
+            if (stmt.def_stmt.is_strict or self.is_strict) try strict_funcs.put(stmt.def_stmt.name, true);
         }
     }
 
@@ -306,7 +304,7 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
             const d = stmt.def_stmt;
             try @import("stmt/stmt_def.zig").transpileDefStmt(self, d, &global_vars, &strict_funcs);
         } else if (stmt.* == .class_stmt) {
-            try @import("stmt/stmt_class.zig").transpileClassStmt(self, stmt.class_stmt, &strict_funcs);
+            try @import("stmt/stmt_class.zig").transpileClassStmt(self, stmt.class_stmt, &global_vars, &strict_funcs);
         }
     }
     

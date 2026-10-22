@@ -40,6 +40,38 @@ def test_starred_unpacking():
     p, q, *_ = [7, 8, 9, 10]
     assert p == 7
     assert q == 8
+
+    # Single starred target with trailing comma
+    *only_star, = [1, 2, 3]
+    assert len(only_star) == 3
+    assert only_star[0] == 1
+    assert only_star[1] == 2
+    assert only_star[2] == 3
+
+    # Starred target into dictionary subscript
+    d_star = {}
+    [a_sub, *d_star["items"], c_sub] = [10, 20, 30, 40]
+    assert a_sub == 10
+    assert len(d_star["items"]) == 2
+    assert d_star["items"][0] == 20
+    assert d_star["items"][1] == 30
+    assert c_sub == 40
+
+    # Unbracketed subscript target
+    d_nobracket = {}
+    u_a, *d_nobracket["sub"], u_c = [100, 200, 300, 400]
+    assert u_a == 100
+    assert len(d_nobracket["sub"]) == 2
+    assert u_c == 400
+
+    # Unpacking inside inner block (verifies function scope promotion)
+    if True:
+        inner_h, *inner_t = [11, 22, 33]
+    assert inner_h == 11
+    assert len(inner_t) == 2
+    assert inner_t[0] == 22
+    assert inner_t[1] == 33
+
     print("Starred unpacking passed!")
 
 def test_del_statement():
@@ -102,6 +134,22 @@ def test_multi_clause_except():
     except:
         res3 = "fallback"
     assert res3 == "fallback"
+
+    # Outer variable shadowing test
+    err_var = "initial"
+    try:
+        raise ValueError
+    except ValueError as err_var:
+        pass
+    assert str(err_var) == "ValueError"
+
+    # Inner variable assignment in except clause used afterwards
+    try:
+        raise TypeError
+    except TypeError:
+        assigned_in_except = 999
+    assert assigned_in_except == 999
+
     print("Multi-clause except passed!")
 
 def test_augmented_assignments():
@@ -210,6 +258,52 @@ def test_standalone_annotations():
     assert vid.summary() == "Test Video"
     print("Standalone annotations passed!")
 
+# Module-level tuple unpacking test
+top_x, top_y = 111, 222
+def get_top_x():
+    return top_x
+
+def except_yield_gen():
+    try:
+        raise TypeError
+    except ValueError:
+        pass
+    except TypeError:
+        yield 42
+    else:
+        yield 99
+
+def test_yield_in_except():
+    print("Testing yield in except and else...")
+    ey_res = except_yield_gen()
+    assert len(ey_res) == 1
+    assert ey_res[0] == 42
+    print("Yield in except passed!")
+
+def test_param_shadowing(top_x):
+    print("Testing function parameter shadowing global variable...")
+    assert top_x == 5
+    top_x = 10
+    top_x += 15
+    return top_x
+
+class ShadowClass:
+    def method(self, top_y):
+        assert top_y == 50
+        top_y += 5
+        return top_y
+
+def run_shadow_tests():
+    res_fn = test_param_shadowing(5)
+    assert res_fn == 25
+    assert top_x == 111
+
+    sc = ShadowClass()
+    res_m = sc.method(50)
+    assert res_m == 55
+    assert top_y == 222
+    print("Parameter shadowing passed!")
+
 def main():
     test_starred_unpacking()
     test_del_statement()
@@ -218,6 +312,9 @@ def main():
     test_multiple_returns()
     test_subgenerator_yield_from()
     test_standalone_annotations()
+    test_yield_in_except()
+    assert get_top_x() == 111
+    run_shadow_tests()
     print("ALL YT-DLP SYNTAX SUITE TESTS PASSED SUCCESSFULLY!")
 
 main()

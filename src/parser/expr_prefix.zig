@@ -12,7 +12,7 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             const right = if (t == .KeywordNot)
                 try self.parseExpr(.logicalOr)
             else
-                try parsePrefix(self);
+                try self.parseExpr(.factor);
             if (t == .Star) {
                 node.* = .{ .starred = .{ .value = right } };
             } else {

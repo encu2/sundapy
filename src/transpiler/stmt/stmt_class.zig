@@ -4,7 +4,7 @@ const Transpiler = @import("../transpiler.zig").Transpiler;
 const mapType = @import("../transpiler.zig").Transpiler.mapType;
 const isRecursive = @import("../analysis/analysis.zig").isRecursive;
 
-pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.StringHashMap(bool)) !void {
+pub fn transpileClassStmt(self: *Transpiler, c: anytype, global_vars: *std.StringHashMap(bool), strict_funcs: *std.StringHashMap(bool)) !void {
     try self.emit("pub const {s} = struct {{\n", .{c.name});
     self.indent_level += 1;
     
@@ -80,7 +80,12 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
                         return error.MissingTypeAnnotation;
                     };
                 }
-                try self.emit("{s}: {s}", .{p.name, p_type});
+                const p_name = if (!std.mem.eql(u8, p.name, "self") and global_vars.contains(p.name))
+                    try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name})
+                else
+                    try self.allocator.dupe(u8, p.name);
+                defer self.allocator.free(p_name);
+                try self.emit("{s}: {s}", .{ p_name, p_type });
                 if (idx < d.params.items.len - 1) try self.emit(", ", .{});
             }
             
@@ -104,6 +109,17 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
                 try self.emitIndent();
                 if (std.mem.eql(u8, p.name, "self")) {
                     try self.emit("_ = if (true) self else {{}};\n", .{});
+                } else if (global_vars.contains(p.name)) {
+                    const p_ident = try std.fmt.allocPrint(self.allocator, "__sundapy_p_{s}", .{p.name});
+                    defer self.allocator.free(p_ident);
+                    const v_ident = try std.fmt.allocPrint(self.allocator, "__sundapy_v_{s}", .{p.name});
+                    defer self.allocator.free(v_ident);
+                    try self.emit("_ = if (true) {s} else {{}};\n", .{p_ident});
+                    try self.emitIndent();
+                    try self.emit("var {s} = {s};\n", .{ v_ident, p_ident });
+                    try self.emitIndent();
+                    try self.emit("_ = &{s};\n", .{v_ident});
+                    try self.scoped_aliases.put(p.name, try self.allocator.dupe(u8, v_ident));
                 } else {
                     try self.emit("_ = if (true) {s} else {{}};\n", .{p.name});
                 }
@@ -155,6 +171,14 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
                 }
             }
             
+            for (d.params.items) |p| {
+                if (!std.mem.eql(u8, p.name, "self") and global_vars.contains(p.name)) {
+                    if (self.scoped_aliases.fetchRemove(p.name)) |entry| {
+                        self.allocator.free(entry.value);
+                    }
+                }
+            }
+
             self.indent_level -= 1;
             try self.emitIndent();
             try self.emit("}}\n", .{});
