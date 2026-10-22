@@ -1,17 +1,30 @@
 const std = @import("std");
 const zip_mod = @import("zip.zig");
 const env_mod = @import("env.zig");
+const security = @import("security.zig");
+
+fn cleanDirTree(io: std.Io, dir: std.Io.Dir) void {
+    var it = dir.iterate();
+    while (it.next(io) catch null) |entry| {
+        if (entry.kind == .directory) {
+            if (dir.openDir(io, entry.name, .{ .iterate = true })) |sub_val| {
+                var sub = sub_val;
+                defer sub.close(io);
+                cleanDirTree(io, sub);
+            } else |_| {}
+            dir.deleteDir(io, entry.name) catch {};
+        } else {
+            dir.deleteFile(io, entry.name) catch {};
+        }
+    }
+}
 
 fn cleanDir(io: std.Io, dir_path: []const u8) void {
     const cwd = std.Io.Dir.cwd();
     if (cwd.openDir(io, dir_path, .{ .iterate = true })) |dir_val| {
         var dir = dir_val;
         defer dir.close(io);
-        var it = dir.iterate();
-        while (it.next(io) catch null) |entry| {
-            dir.deleteFile(io, entry.name) catch {};
-            dir.deleteDir(io, entry.name) catch {};
-        }
+        cleanDirTree(io, dir);
     } else |_| {}
 }
 
@@ -94,6 +107,11 @@ pub fn buildAndInstallSdist(
     pkg: []const u8,
     environ_map: ?*const std.process.Environ.Map,
 ) !bool {
+    if (!security.validatePackageName(pkg)) {
+        std.debug.print("Error: Invalid or insecure package name: '{s}'\n", .{pkg});
+        return false;
+    }
+
     std.debug.print("  [*] No prebuilt wheel found on PyPI for '{s}' (only source distribution available).\n", .{pkg});
     std.debug.print("  [*] Attempting to build wheel via host Python...\n", .{});
 
@@ -122,6 +140,10 @@ pub fn buildAndInstallLocalProject(
     path: []const u8,
     environ_map: ?*const std.process.Environ.Map,
 ) ![][]const u8 {
+    if (path.len == 0 or std.mem.indexOfScalar(u8, path, 0) != null) {
+        return error.InvalidLocalProjectPath;
+    }
+
     std.debug.print("==> Installing local project '{s}' into .cache/pyLibrary/...\n", .{path});
     std.debug.print("  [*] Building wheel via host Python...\n", .{});
 

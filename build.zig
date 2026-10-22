@@ -50,5 +50,27 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         fetch_cmd.addArgs(args);
     }
+
+    const sec_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fetcher/security.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_sec_tests = b.addRunArtifact(sec_tests);
+
+    const score_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fetcher/wheel_score.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_score_tests = b.addRunArtifact(score_tests);
+
+    const test_step = b.step("test", "Run sundafetch security and scoring unit tests");
+    test_step.dependOn(&run_sec_tests.step);
+    test_step.dependOn(&run_score_tests.step);
 }
 

@@ -1,6 +1,7 @@
 const std = @import("std");
 const env_mod = @import("env.zig");
 const detect_entry = @import("detect_entry.zig");
+const security = @import("security.zig");
 
 pub const EntryPoint = detect_entry.EntryPoint;
 pub const detectEntryPoint = detect_entry.detectEntryPoint;
@@ -62,6 +63,17 @@ pub fn generateAndBuild(
         if (entry.direct_script) |ds| {
             break :blk ds;
         } else {
+            if (!security.validateIdentifier(entry.module_path)) {
+                std.debug.print("Error: Invalid or suspicious module path in entrypoint: '{s}'\n", .{entry.module_path});
+                return error.InvalidModuleIdentifier;
+            }
+            if (entry.callable) |call_fn| {
+                if (!security.validateIdentifier(call_fn)) {
+                    std.debug.print("Error: Invalid or suspicious callable identifier in entrypoint: '{s}'\n", .{call_fn});
+                    return error.InvalidCallableIdentifier;
+                }
+            }
+
             const safe_stem = std.fs.path.basename(final_bin);
             const wrapper_path = try std.fmt.allocPrint(allocator, ".cache/entrypoint_{s}.py", .{safe_stem});
             const wrapper_code = if (entry.callable) |call_fn|

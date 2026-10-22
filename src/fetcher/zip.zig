@@ -1,4 +1,5 @@
 const std = @import("std");
+const security = @import("security.zig");
 
 pub fn extractEntry(
     self: std.zip.Iterator.Entry,
@@ -15,10 +16,22 @@ pub fn extractEntry(
         else => return error.UnsupportedCompressionMethod,
     }
 
-    const filename = filename_buf[0..self.filename_len];
-    try stream.seekTo(self.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));
-    try stream.interface.readSliceAll(filename);
+    const cd_header = blk: {
+        try stream.seekTo(self.header_zip_offset);
+        break :blk try stream.interface.takeStruct(std.zip.CentralDirectoryFileHeader, .little);
+    };
 
+    try security.validateEntrySafety(self.uncompressed_size, self.compressed_size, cd_header.external_file_attributes);
+
+    var raw_filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (raw_filename_buf.len < self.filename_len)
+        return error.ZipInsufficientBuffer;
+
+    const raw_filename = raw_filename_buf[0..self.filename_len];
+    try stream.seekTo(self.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));
+    try stream.interface.readSliceAll(raw_filename);
+
+    const filename = try security.sanitizeEntryPath(filename_buf, raw_filename);
     if (filename.len == 0) return;
 
     if (filename[filename.len - 1] == '/') {
@@ -91,7 +104,13 @@ pub fn extractZipFile(io: std.Io, zip_path: []const u8, dest_dir_path: []const u
     var iter = try std.zip.Iterator.init(&reader);
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
 
+    var entry_count: usize = 0;
+    var total_uncompressed: u64 = 0;
+
     while (try iter.next()) |entry| {
+        entry_count += 1;
+        total_uncompressed += entry.uncompressed_size;
+        try security.validateArchiveLimits(entry_count, total_uncompressed);
         try extractEntry(entry, &reader, &filename_buf, dest_dir);
     }
 }

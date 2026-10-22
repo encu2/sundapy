@@ -82,6 +82,12 @@ SundaPy is engineered as a **drop-in substitute** for developers and AI agents w
   - Zero contamination of system or global Python environments.
   - Fully reproducible, project-local dependency resolution.
   - Offline execution once dependencies are cached.
+- **Supply-Chain & Archive Security Hardening**:
+  - **Zip-Slip Prevention**: Path sanitization, segment verification, and traversal rejection (`..`, `:`, `/`, `\0`).
+  - **Decompression Bomb Protection**: Quotas enforcing max entry size (1 GB), total archive size (4 GB), entry count (50,000), and max compression ratio (100:1).
+  - **Symlink & Special File Rejection**: Rejects symlinks and device files violating PEP 427.
+  - **Cryptographic Digest Validation**: Automatic streaming SHA-256 calculation and verification against PyPI JSON digests.
+  - **Package & Identifier Validation**: Strict PEP 508 / PEP 426 package name sanitization and entrypoint identifier verification.
 - **Native TLS Certificate Handling**: Uses Zig's `std.crypto.Certificate.Bundle.rescan` to load root trust anchors from the host operating system without requiring OpenSSL.
 
 ### 2.3 CLI Usage
