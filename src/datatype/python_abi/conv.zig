@@ -276,6 +276,21 @@ pub fn setDynamicItem(obj: *anyopaque, index: Dynamic, value: Dynamic) !void {
     }
 }
 
+pub fn delDynamicItem(obj: *anyopaque, index: Dynamic) !void {
+    const _gstate = sym.fn_PyGILState_Ensure();
+    defer sym.fn_PyGILState_Release(_gstate);
+
+    const del_fn = sym.fn_PyObject_DelItem orelse return error.TypeError;
+    const py_key = dynamicToPyObject(index) orelse return error.TypeError;
+    defer sym.fn_Py_DecRef(py_key);
+
+    const res = del_fn(obj, py_key);
+    if (res != 0) {
+        sym.fn_PyErr_Clear();
+        return error.KeyError;
+    }
+}
+
 pub fn getDynamicSlice(obj: *anyopaque, start: Dynamic, stop: Dynamic, step: Dynamic) !Dynamic {
     const _gstate = sym.fn_PyGILState_Ensure();
     defer sym.fn_PyGILState_Release(_gstate);

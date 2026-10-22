@@ -8,7 +8,16 @@ pub fn transpileTupleAssign(self: *Transpiler, t: anytype, declared_vars: *std.S
     self.label_counter += 1;
     const lid = self.label_counter;
 
-    const is_direct_rhs = (t.value.* == .list_expr and t.value.list_expr.items.items.len == targets.len) or (t.value.* == .tuple_expr and t.value.tuple_expr.items.items.len == targets.len);
+    var star_idx: ?usize = null;
+    for (targets, 0..) |tgt, i| {
+        if (tgt.* == .starred) {
+            star_idx = i;
+            break;
+        }
+    }
+
+    const has_star = (star_idx != null);
+    const is_direct_rhs = !has_star and ((t.value.* == .list_expr and t.value.list_expr.items.items.len == targets.len) or (t.value.* == .tuple_expr and t.value.tuple_expr.items.items.len == targets.len));
     if (is_direct_rhs) {
         const rhs_items = if (t.value.* == .list_expr) t.value.list_expr.items.items else t.value.tuple_expr.items.items;
         for (rhs_items, 0..) |item, idx| {
@@ -26,17 +35,74 @@ pub fn transpileTupleAssign(self: *Transpiler, t: anytype, declared_vars: *std.S
         try self.transpileExpr(t.value);
         try self.emit(");\n", .{});
 
-        for (targets, 0..) |tgt, idx| {
+        if (star_idx) |s_idx| {
+            const suffix_count = targets.len - 1 - s_idx;
+            const min_len = targets.len - 1;
             try self.emitIndent();
-            try self.emit("const _tmp_{d}_{d} = _tup_{d}.getItem({d});\n", .{ lid, idx, lid, idx });
+            try self.emit("const _tup_len_{d} = _tup_{d}.len();\n", .{ lid, lid });
             try self.emitIndent();
-            try emitTargetAssign(self, tgt, lid, idx, declared_vars);
+            if (self.try_depth > 0) {
+                try self.emit("if (_tup_len_{d} < {d}) break :try_blk_{d} error.ValueError;\n", .{ lid, min_len, self.try_depth });
+            } else {
+                try self.emit("if (_tup_len_{d} < {d}) return error.ValueError;\n", .{ lid, min_len });
+            }
+            for (targets[0..s_idx], 0..) |tgt, idx| {
+                try self.emitIndent();
+                try self.emit("const _tmp_{d}_{d} = _tup_{d}.getItem({d});\n", .{ lid, idx, lid, idx });
+                try self.emitIndent();
+                try emitTargetAssign(self, tgt, lid, idx, declared_vars);
+            }
+            try self.emitIndent();
+            try self.emit("var _star_list_{d} = Dynamic.initList(.empty);\n", .{lid});
+            try self.emitIndent();
+            try self.emit("const _star_end_{d} = _tup_len_{d} - {d};\n", .{ lid, lid, suffix_count });
+            try self.emitIndent();
+            try self.emit("var _star_i_{d}: usize = {d};\n", .{ lid, s_idx });
+            try self.emitIndent();
+            try self.emit("while (_star_i_{d} < _star_end_{d}) : (_star_i_{d} += 1) {{\n", .{ lid, lid, lid });
+            try self.emitIndent();
+            try self.emit("    _star_list_{d}.value.list_type.items.append(alloc, _tup_{d}.getItem(_star_i_{d})) catch unreachable;\n", .{ lid, lid, lid });
+            try self.emitIndent();
+            try self.emit("}}\n", .{});
+            try self.emitIndent();
+            try self.emit("const _tmp_{d}_{d} = _star_list_{d};\n", .{ lid, s_idx, lid });
+            try self.emitIndent();
+            try emitTargetAssign(self, targets[s_idx], lid, s_idx, declared_vars);
+
+            for (targets[s_idx + 1 ..], 0..) |tgt, k| {
+                const actual_idx = s_idx + 1 + k;
+                const from_end = suffix_count - k;
+                try self.emitIndent();
+                try self.emit("const _tmp_{d}_{d} = _tup_{d}.getItem(_tup_len_{d} - {d});\n", .{ lid, actual_idx, lid, lid, from_end });
+                try self.emitIndent();
+                try emitTargetAssign(self, tgt, lid, actual_idx, declared_vars);
+            }
+        } else {
+            if (!is_direct_rhs) {
+                try self.emitIndent();
+                try self.emit("const _tup_len_{d} = _tup_{d}.len();\n", .{ lid, lid });
+                try self.emitIndent();
+                if (self.try_depth > 0) {
+                    try self.emit("if (_tup_len_{d} != {d}) break :try_blk_{d} error.ValueError;\n", .{ lid, targets.len, self.try_depth });
+                } else {
+                    try self.emit("if (_tup_len_{d} != {d}) return error.ValueError;\n", .{ lid, targets.len });
+                }
+            }
+            for (targets, 0..) |tgt, idx| {
+                try self.emitIndent();
+                try self.emit("const _tmp_{d}_{d} = _tup_{d}.getItem({d});\n", .{ lid, idx, lid, idx });
+                try self.emitIndent();
+                try emitTargetAssign(self, tgt, lid, idx, declared_vars);
+            }
         }
     }
 }
 
 fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, declared_vars: *std.StringHashMap(bool)) anyerror!void {
     switch (tgt.*) {
+        .starred => |s| {
+            try emitTargetAssign(self, s.value, lid, idx, declared_vars);
+        },
         .identifier => |id| {
             const name = try self.escapeKeyword(id.name);
             defer self.allocator.free(name);
@@ -68,6 +134,25 @@ fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, d
         },
     }
 }
+
+pub fn transpileAnnDecl(self: *Transpiler, ad: anytype, declared_vars: *std.StringHashMap(bool)) !void {
+    const already_decl = declared_vars.contains(ad.target);
+    if (!already_decl) {
+        try declared_vars.put(ad.target, true);
+        if (self.is_strict) {
+            if (ad.type_ann) |t| {
+                try self.emit("var {s}: {s} = undefined;\n", .{ ad.target, mapType(t) });
+                try self.emitIndent();
+                try self.emit("_ = &{s};\n", .{ad.target});
+            }
+        } else {
+            try self.emit("var {s} = Dynamic.initNone();\n", .{ad.target});
+            try self.emitIndent();
+            try self.emit("_ = &{s};\n", .{ad.target});
+        }
+    }
+}
+
 pub fn transpileAssign(self: *Transpiler, a: anytype, declared_vars: *std.StringHashMap(bool)) !void {
     const already_declared = declared_vars.contains(a.target);
     if (!already_declared) {

@@ -223,6 +223,9 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const getDynamicItem = @import("dynamic_items.zig").getDynamicItem;
     pub const getDynamicSlice = @import("dynamic_items.zig").getDynamicSlice;
     pub const setDynamicItem = @import("dynamic_items.zig").setDynamicItem;
+    pub const delDynamicItem = @import("dynamic_items.zig").delDynamicItem;
+    pub const dict_delete = @import("dynamic_items.zig").dict_delete;
+    pub const list_delete = @import("dynamic_items.zig").list_delete;
     pub fn print(self: Dynamic) void {
         @import("dynamic/print.zig").printValue(self);
     }
@@ -261,6 +264,7 @@ pub fn fromAny(val: anytype) Dynamic {
     pub const pos = ops.pos;
     
     pub const str_split = @import("dynamic/str_methods.zig").str_split;
+    pub const str_split_max = @import("dynamic/str_methods.zig").str_split_max;
     pub const str_replace = @import("dynamic/str_methods.zig").str_replace;
     pub const str_join = @import("dynamic/str_methods.zig").str_join;
     pub const str_upper = @import("dynamic/str_methods.zig").str_upper;

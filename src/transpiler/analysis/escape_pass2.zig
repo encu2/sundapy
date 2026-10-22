@@ -91,6 +91,12 @@ pub fn analyzeSecondPass(self: *EscapeAnalyzer, node: *ast.Node) anyerror!void {
         .unary => |u| {
             try analyzeSecondPass(self, u.right);
         },
+        .starred => |s| {
+            try analyzeSecondPass(self, s.value);
+        },
+        .compound_stmt => |cs| {
+            for (cs.items.items) |item| try analyzeSecondPass(self, item);
+        },
         else => {},
     }
 }

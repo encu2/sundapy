@@ -10,6 +10,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
         .pass_stmt, .ellipsis => try self.emit("// pass\n", .{}),
         .directive_strict => try self.emit("// #strict mode enabled\n", .{}),
         .assign => |a| try @import("stmt/stmt_assign.zig").transpileAssign(self, a, declared_vars),
+        .ann_decl => |ad| try @import("stmt/stmt_assign.zig").transpileAnnDecl(self, ad, declared_vars),
         .tuple_assign => |t| try @import("stmt/stmt_assign.zig").transpileTupleAssign(self, t, declared_vars),
         .const_assign => |a| try @import("stmt/stmt_assign.zig").transpileConstAssign(self, a, declared_vars),
         .subscript_assign => |s| try @import("stmt/stmt_assign.zig").transpileSubscriptAssign(self, s),
@@ -36,10 +37,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
         .global_decl => |g| {
             try self.emit("// global {s}\n", .{g.name});
         },
-        .del_stmt => |d| {
-            _ = d;
-            try self.emit("// del\n", .{});
-        },
+        .del_stmt => |d| try @import("stmt/stmt_misc.zig").transpileDel(self, d),
         .nonlocal_decl => |n| {
             try self.emit("// nonlocal {s}\n", .{n.name});
         },

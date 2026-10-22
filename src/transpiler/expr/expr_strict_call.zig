@@ -188,6 +188,7 @@ pub fn transpileStrictCall(self: *Transpiler, c: anytype) anyerror!void {
             try self.emit(") catch {{}};\n", .{});
         }
         try self.emit("        break :blk_{d} dynamic.toDynamicFunc(_callee).builtin_call(alloc, &_args_arr, _kwargs_dict);\n", .{lid});
+        try self.emit("    }}\n", .{});
     } else {
         try self.emit("    }} else {{\n", .{});
         if (c.args.items.len > 0) {

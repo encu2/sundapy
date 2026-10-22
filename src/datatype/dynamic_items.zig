@@ -11,3 +11,12 @@ const DynType = dynamic.DynType;
     pub fn setDynamicItem(self: Dynamic, index: Dynamic, value: Dynamic) !void {
         return @import("dynamic_item.zig").setDynamicItem(self, index, value);
     }
+    pub fn delDynamicItem(self: anytype, index: Dynamic) !void {
+        return @import("dynamic_item.zig").delDynamicItem(self, index);
+    }
+    pub fn dict_delete(self: anytype, key: Dynamic) !void {
+        return @import("dynamic_item.zig").delDynamicItem(self, key);
+    }
+    pub fn list_delete(self: anytype, idx: Dynamic) !void {
+        return @import("dynamic_item.zig").delDynamicItem(self, idx);
+    }

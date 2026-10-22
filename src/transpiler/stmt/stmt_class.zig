@@ -33,6 +33,9 @@ pub fn transpileClassStmt(self: *Transpiler, c: anytype, strict_funcs: *std.Stri
     }
     for (c.methods.items) |cm| {
         try all_methods.append(self.allocator, cm);
+        if (cm.* == .ann_decl) {
+            try fields.put(cm.ann_decl.target, true);
+        }
     }
     
     for (all_methods.items) |method_node| {

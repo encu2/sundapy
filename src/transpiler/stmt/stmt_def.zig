@@ -25,6 +25,9 @@ fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
             }
             try collectVars(a.value, vars);
         },
+        .ann_decl => |ad| {
+            try vars.put(ad.target, true);
+        },
         .for_stmt => |f| {
             // iterator variables should also be collected
             const iter_str_raw = std.mem.trim(u8, f.iterator, " ");

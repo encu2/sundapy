@@ -6,32 +6,68 @@ pub fn parseTryStmt(self: *Parser) anyerror!*ast.Node {
     try self.expect(.Colon);
     const try_block = try self.parseBlock();
     
-    var except_block: ?std.ArrayList(*ast.Node) = null;
-    var except_type: ?[]const u8 = null;
-    var except_as: ?[]const u8 = null;
-    var is_star = false;
-    if (self.match(.KeywordExcept)) {
+    var except_clauses = std.ArrayList(ast.ExceptClause).empty;
+    var first_except_block: ?std.ArrayList(*ast.Node) = null;
+    var first_except_type: ?[]const u8 = null;
+    var first_except_as: ?[]const u8 = null;
+    var first_is_star = false;
+
+    while (self.match(.KeywordExcept)) {
+        var is_star = false;
         if (self.match(.Star)) {
             is_star = true;
         }
-        if (self.current.type == .Identifier) {
-            except_type = self.current.lexeme;
-            self.advance();
-            while (self.match(.Comma)) {
-                if (self.current.type == .Identifier) {
+        var exc_type: ?[]const u8 = null;
+        var exc_as: ?[]const u8 = null;
+        if (self.current.type != .Colon) {
+            const start_ptr = self.current.lexeme.ptr;
+            var end_ptr = start_ptr + self.current.lexeme.len;
+            if (self.current.type == .Identifier) {
+                self.advance();
+                end_ptr = self.current.lexeme.ptr;
+                while (self.match(.Comma)) {
+                    if (self.current.type == .Identifier) {
+                        self.advance();
+                        end_ptr = self.current.lexeme.ptr;
+                    } else break;
+                }
+            } else if (self.current.type == .LParen) {
+                self.advance();
+                while (self.current.type != .RParen and self.current.type != .Colon and self.current.type != .EOF) {
+                    end_ptr = self.current.lexeme.ptr + self.current.lexeme.len;
                     self.advance();
                 }
+                if (self.match(.RParen)) {
+                    end_ptr = self.current.lexeme.ptr;
+                }
             }
+            const type_len = @intFromPtr(end_ptr) - @intFromPtr(start_ptr);
+            exc_type = std.mem.trim(u8, start_ptr[0..type_len], " \t\r\n");
+
             if (self.match(.KeywordAs)) {
-                except_as = self.current.lexeme;
-                self.advance();
+                if (self.current.type == .Identifier) {
+                    exc_as = self.current.lexeme;
+                    self.advance();
+                }
             }
         }
         while (self.current.type != .Colon and self.current.type != .EOF) {
             self.advance();
         }
         try self.expect(.Colon);
-        except_block = try self.parseBlock();
+        const block = try self.parseBlock();
+        if (first_except_block == null) {
+            first_except_block = block;
+            first_except_type = exc_type;
+            first_except_as = exc_as;
+            first_is_star = is_star;
+        }
+        try except_clauses.append(self.allocator, .{
+            .except_type = exc_type,
+            .except_as = exc_as,
+            .is_star = is_star,
+            .body = block,
+        });
     }
     
     var else_block: ?std.ArrayList(*ast.Node) = null;
@@ -47,7 +83,16 @@ pub fn parseTryStmt(self: *Parser) anyerror!*ast.Node {
     }
     
     const node = try self.allocator.create(ast.Node);
-    node.* = .{ .try_stmt = .{ .body = try_block, .except_branch = except_block, .except_type = except_type, .except_as = except_as, .is_star = is_star, .finally_branch = finally_block, .else_branch = else_block } };
+    node.* = .{ .try_stmt = .{
+        .body = try_block,
+        .except_clauses = except_clauses,
+        .except_branch = first_except_block,
+        .except_type = first_except_type,
+        .except_as = first_except_as,
+        .is_star = first_is_star,
+        .finally_branch = finally_block,
+        .else_branch = else_block,
+    } };
     return node;
 }
 
