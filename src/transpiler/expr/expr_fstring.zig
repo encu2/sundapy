@@ -55,10 +55,18 @@ pub fn transpileFString(self: *Transpiler, f: anytype, is_strict: bool) !void {
                 if (std.mem.indexOfScalar(u8, var_name, ':')) |colon_idx| {
                     actual_var = var_name[0..colon_idx];
                 }
+                if (std.mem.indexOfScalar(u8, actual_var, '!')) |excl_idx| {
+                    actual_var = actual_var[0..excl_idx];
+                }
                 const trimmed_var = std.mem.trim(u8, actual_var, " \t\r\n");
+                if (trimmed_var.len == 0) {
+                    try self.emit("        \"\",\n", .{});
+                    start_idx = i + 1;
+                    continue;
+                }
                 var sub_lexer = @import("../../lexer/lexer.zig").Lexer.init(self.allocator, trimmed_var);
                 defer sub_lexer.deinit();
-                var sub_parser = @import("../../parser/parser.zig").Parser.init(self.allocator, &sub_lexer);
+                var sub_parser = @import("../../parser/parser.zig").Parser.initQuiet(self.allocator, &sub_lexer);
                 if (sub_parser.parseExpr(.none)) |expr_node| {
                     try self.emit("        dynamic.stringifyStr(alloc, ", .{});
                     if (is_strict) {
@@ -70,7 +78,8 @@ pub fn transpileFString(self: *Transpiler, f: anytype, is_strict: bool) !void {
                     }
                     try self.emit("),\n", .{});
                 } else |_| {
-                    try self.emit("        dynamic.stringifyStr(alloc, {s}),\n", .{trimmed_var});
+                    const esc = @import("expr_string_tools.zig").escapeForZig(self.allocator, trimmed_var);
+                    try self.emit("        dynamic.stringifyStr(alloc, \"{s}\"),\n", .{esc});
                 }
                 start_idx = i + 1;
             }

@@ -211,7 +211,7 @@ pub const sundapyBridge = struct {
             @memcpy(attr_c[0..attr.len], attr);
             attr_c[attr.len] = 0;
 
-            const py_val = try conv.dynamicToPyObject(val);
+            const py_val = conv.dynamicToPyObject(val) orelse return error.TypeError;
             defer sym.fn_Py_DecRef(py_val);
             if (pySetAttr(obj, @ptrCast(&attr_c), py_val) < 0) {
                 sym.fn_PyErr_Clear();

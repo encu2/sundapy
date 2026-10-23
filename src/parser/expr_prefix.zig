@@ -108,38 +108,12 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 return node;
             }
             const first_expr = try self.parseExpr(.none);
-            var is_async_comp = false;
-            if (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor) {
-                is_async_comp = true;
-                self.advance(); // consume async
-            }
-            if (self.current.type == .KeywordFor) {
-                self.advance(); // consume for
-                var targets_buf: std.ArrayList(u8) = .empty;
-                while (true) {
-                    try targets_buf.appendSlice(self.allocator, self.current.lexeme);
-                    try self.expect(.Identifier);
-                    if (self.match(.Comma)) {
-                        try targets_buf.append(self.allocator, ',');
-                    } else break;
-                }
-                const target_name = targets_buf.items;
-                try self.expect(.KeywordIn);
-                // Parse iterable with .logicalOr precedence to stop before 'if' keyword
-                const iter_expr = try self.parseExpr(.logicalOr);
-                var cond: ?*ast.Node = null;
-                if (self.current.type == .KeywordIf) {
-                    self.advance();
-                    // Parse filter condition with .logicalOr precedence to stop before ']' or 'for'
-                    cond = try self.parseExpr(.logicalOr);
-                }
+            if (self.current.type == .KeywordFor or (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor)) {
+                const clauses = try parseCompClauses(self);
                 try self.expect(.RBracket);
                 node.* = .{ .list_comp = .{
                     .expression = first_expr,
-                    .target = target_name,
-                    .iterable = iter_expr,
-                    .condition = cond,
-                    .is_async = is_async_comp,
+                    .clauses = clauses,
                 } };
             } else {
                 var items: std.ArrayList(*ast.Node) = .empty;
@@ -164,37 +138,12 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
                 is_tuple = true;
             } else {
                 const first = try self.parseExpr(.none);
-                
-                var is_async_comp = false;
-                if (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor) {
-                    is_async_comp = true;
-                    self.advance();
-                }
-                if (self.current.type == .KeywordFor) {
-                    self.advance();
-                    var targets_buf: std.ArrayList(u8) = .empty;
-                    while (true) {
-                        try targets_buf.appendSlice(self.allocator, self.current.lexeme);
-                        try self.expect(.Identifier);
-                        if (self.match(.Comma)) {
-                            try targets_buf.append(self.allocator, ',');
-                        } else break;
-                    }
-                    const target_name = targets_buf.items;
-                    try self.expect(.KeywordIn);
-                    const iter_expr = try self.parseExpr(.logicalOr);
-                    var cond: ?*ast.Node = null;
-                    if (self.current.type == .KeywordIf) {
-                        self.advance();
-                        cond = try self.parseExpr(.logicalOr);
-                    }
+                if (self.current.type == .KeywordFor or (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor)) {
+                    const clauses = try parseCompClauses(self);
                     try self.expect(.RParen);
                     node.* = .{ .list_comp = .{
                         .expression = first,
-                        .target = target_name,
-                        .iterable = iter_expr,
-                        .condition = cond,
-                        .is_async = is_async_comp,
+                        .clauses = clauses,
                     } };
                     return node;
                 }
@@ -326,9 +275,52 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             node.* = .{ .dummy_expr = .{ .desc = "lambda" } };
         },
         else => {
-            std.debug.print("ParseError on line {d} (parsePrefix): Token: {any} '{s}'\n", .{self.current.line, self.current.type, self.current.lexeme});
+            if (!self.quiet) {
+                std.debug.print("ParseError on line {d} (parsePrefix): Token: {any} '{s}'\n", .{self.current.line, self.current.type, self.current.lexeme});
+            }
             return error.ParseError;
         }
     }
     return node;
+}
+
+pub fn parseCompClauses(self: *Parser) !std.ArrayList(ast.CompClause) {
+    var clauses = std.ArrayList(ast.CompClause).empty;
+    while (self.current.type == .KeywordFor or (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor)) {
+        var is_async_comp = false;
+        if (self.match(.KeywordAsync)) {
+            is_async_comp = true;
+        }
+        self.advance(); // skip 'for'
+        var targets_buf: std.ArrayList(u8) = .empty;
+        while (true) {
+            try targets_buf.appendSlice(self.allocator, self.current.lexeme);
+            try self.expect(.Identifier);
+            if (self.match(.Comma)) {
+                try targets_buf.append(self.allocator, ',');
+            } else break;
+        }
+        const target_name = targets_buf.items;
+        try self.expect(.KeywordIn);
+        const iter_expr = try self.parseExpr(.logicalOr);
+        var cond: ?*ast.Node = null;
+        while (self.current.type == .KeywordIf) {
+            self.advance();
+            const next_cond = try self.parseExpr(.logicalOr);
+            if (cond) |c| {
+                const bin = try self.allocator.create(ast.Node);
+                bin.* = .{ .binary = .{ .op = "and", .left = c, .right = next_cond } };
+                cond = bin;
+            } else {
+                cond = next_cond;
+            }
+        }
+        try clauses.append(self.allocator, .{
+            .target = target_name,
+            .iterable = iter_expr,
+            .condition = cond,
+            .is_async = is_async_comp,
+        });
+    }
+    return clauses;
 }

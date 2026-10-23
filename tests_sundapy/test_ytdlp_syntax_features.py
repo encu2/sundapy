@@ -238,4 +238,30 @@ assert opts.sponsorblock_mark == "mark_val"
 assert opts.sponsorblock_remove == "mark_val"
 print("Feature 10.2 (attribute chained assignment): PASSED")
 
-print("\n>>> ALL 10 YT-DLP SYNTAX FEATURES VERIFIED SUCCESSFULLY! <<<")
+# ==============================================================================
+# Feature 11: Nested Comprehensions (PEP 202/289) & Multi-If Filters
+# ==============================================================================
+matrix = [[1, 2], [3, 4]]
+flat_list = [x for row in matrix for x in row]
+assert flat_list == [1, 2, 3, 4]
+
+# Multiple if filters
+filtered_pairs = [x * 10 + y for x in [1, 2, 3] if x > 1 for y in [4, 5, 6] if y % 2 == 0]
+assert filtered_pairs == [24, 26, 34, 36]
+
+# AES shift_rows pattern (yt_dlp/aes.py:465)
+data_blk = list(range(16))
+aes_shifted = [data_blk[((c + r) & 3) * 4 + r] for c in range(4) for r in range(4)]
+assert len(aes_shifted) == 16
+print("Feature 11 (nested comprehensions & multi-if): PASSED")
+
+# ==============================================================================
+# Feature 12: F-String Hardening with Empty / Specifier-Only Interpolations
+# ==============================================================================
+str_empty = f"hello{}world"
+assert str_empty == "helloworld"
+str_colon = f"test{:>10}"
+assert str_colon == "test"
+print("Feature 12 (f-string hardening): PASSED")
+
+print("\n>>> ALL 12 YT-DLP SYNTAX FEATURES VERIFIED SUCCESSFULLY! <<<")

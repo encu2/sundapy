@@ -195,7 +195,7 @@ fn transpileFileWorker(allocator_unused: std.mem.Allocator, io: std.Io, file_pat
     // We must pass the original allocator for visited and threads, but we can't because it's not thread-safe.
     // Let's just use page_allocator for shared state operations!
     
-    transpileFile(allocator, io, file_path, visited, threads, is_root, mod_name) catch |err| {
+    transpileFile(allocator, io, file_path, visited, threads, is_root, mod_name, false) catch |err| {
         std.debug.print("Transpilation worker failed for {s}: {any}\n", .{file_path, err});
     };
 }

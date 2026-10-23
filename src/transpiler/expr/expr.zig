@@ -125,48 +125,80 @@ pub fn transpileExpr(self: *Transpiler, node: *ast.Node) anyerror!void {
                 try self.emit("Dynamic{{ .value = .{{ .list_type = .{{ .items = blk_{d}: {{\n", .{lid});
                 try self.emit("    var _l_{d}: std.ArrayList(Dynamic) = .empty;\n", .{lid});
                 try self.emit("    _ = &_l_{d};\n", .{lid});
-                try self.emit("    var iter_obj_{d} = ", .{lid});
-                try self.transpileExpr(l.iterable);
-                try self.emit(";\n", .{});
-                try self.emit("    _l_{d}.ensureTotalCapacity(alloc, iter_obj_{d}.len()) catch {{}};\n", .{lid, lid});
-                try self.emit("    var iter_idx_{d}: usize = 0;\n", .{lid});
-                try self.emit("    while (iter_idx_{d} < iter_obj_{d}.len()) : (iter_idx_{d} += 1) {{\n", .{lid, lid, lid});
-                
-                if (std.mem.indexOfScalar(u8, l.target, ',') != null) {
-                    try self.emit("        const _tup_{d} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{ lid, lid, lid });
-                    var it_tup = std.mem.splitScalar(u8, l.target, ',');
-                    var tup_idx: usize = 0;
-                    while (it_tup.next()) |raw_part| : (tup_idx += 1) {
-                        const part = std.mem.trim(u8, raw_part, " \t\r\n");
-                        if (part.len == 0) continue;
-                        const esc_part = try self.escapeKeyword(part);
-                        defer self.allocator.free(esc_part);
-                        try self.emit("        var {s} = _tup_{d}.getItem({d});\n", .{ esc_part, lid, tup_idx });
-                        try self.emit("        _ = &{s};\n", .{esc_part});
+
+                const SavedAlias = struct { name: []const u8, prev: ?[]const u8, alias: []const u8 };
+                var saved_aliases: std.ArrayList(SavedAlias) = .empty;
+                defer {
+                    for (saved_aliases.items) |sa| {
+                        if (sa.prev) |p| {
+                            self.scoped_aliases.put(sa.name, p) catch {};
+                        } else {
+                            _ = self.scoped_aliases.remove(sa.name);
+                        }
+                        self.allocator.free(sa.alias);
                     }
-                } else {
-                    const escaped_target = try self.escapeKeyword(l.target);
-                    defer self.allocator.free(escaped_target);
-                    try self.emit("        var {s} = iter_obj_{d}.getItem(iter_idx_{d});\n", .{escaped_target, lid, lid});
-                    try self.emit("        _ = &{s};\n", .{escaped_target});
+                    saved_aliases.deinit(self.allocator);
                 }
                 
-                if (l.condition) |cond| {
-                    try self.emit("        if ((", .{});
-                    try self.transpileExpr(cond);
-                    try self.emit(").toBool()) {{\n", .{});
-                    try self.emit("            _l_{d}.append(alloc, ", .{lid});
-                    try self.transpileExpr(l.expression);
-                    try self.emit(") catch unreachable;\n", .{});
-                    try self.emit("        }}\n", .{});
-                } else {
-                    try self.emit("        _l_{d}.append(alloc, ", .{lid});
-                    try self.transpileExpr(l.expression);
-                    try self.emit(") catch unreachable;\n", .{});
+                for (l.clauses.items, 0..) |cl, c_idx| {
+                    try self.emit("    var iter_obj_{d}_{d} = ", .{ lid, c_idx });
+                    try self.transpileExpr(cl.iterable);
+                    try self.emit(";\n", .{});
+                    if (l.clauses.items.len == 1 and cl.condition == null) {
+                        try self.emit("    _l_{d}.ensureTotalCapacity(alloc, iter_obj_{d}_{d}.len()) catch {{}};\n", .{ lid, lid, c_idx });
+                    }
+                    try self.emit("    var iter_idx_{d}_{d}: usize = 0;\n", .{ lid, c_idx });
+                    try self.emit("    while (iter_idx_{d}_{d} < iter_obj_{d}_{d}.len()) : (iter_idx_{d}_{d} += 1) {{\n", .{ lid, c_idx, lid, c_idx, lid, c_idx });
+
+                    if (std.mem.indexOfScalar(u8, cl.target, ',') != null) {
+                        try self.emit("        const _tup_{d}_{d} = iter_obj_{d}_{d}.getItem(iter_idx_{d}_{d});\n", .{ lid, c_idx, lid, c_idx, lid, c_idx });
+                        var it_tup = std.mem.splitScalar(u8, cl.target, ',');
+                        var tup_idx: usize = 0;
+                        while (it_tup.next()) |raw_part| : (tup_idx += 1) {
+                            const part = std.mem.trim(u8, raw_part, " \t\r\n");
+                            if (part.len == 0) continue;
+                            const esc_part = try self.escapeKeyword(part);
+                            defer self.allocator.free(esc_part);
+                            const alias = try std.fmt.allocPrint(self.allocator, "_comp_{s}_{d}_{d}", .{ esc_part, lid, c_idx });
+                            const prev = self.scoped_aliases.get(part);
+                            try self.scoped_aliases.put(part, alias);
+                            try saved_aliases.append(self.allocator, .{ .name = part, .prev = prev, .alias = alias });
+                            try self.emit("        var {s} = _tup_{d}_{d}.getItem({d});\n", .{ alias, lid, c_idx, tup_idx });
+                            try self.emit("        _ = &{s};\n", .{alias});
+                        }
+                    } else {
+                        const escaped_target = try self.escapeKeyword(cl.target);
+                        defer self.allocator.free(escaped_target);
+                        const alias = try std.fmt.allocPrint(self.allocator, "_comp_{s}_{d}_{d}", .{ escaped_target, lid, c_idx });
+                        const prev = self.scoped_aliases.get(cl.target);
+                        try self.scoped_aliases.put(cl.target, alias);
+                        try saved_aliases.append(self.allocator, .{ .name = cl.target, .prev = prev, .alias = alias });
+                        try self.emit("        var {s} = iter_obj_{d}_{d}.getItem(iter_idx_{d}_{d});\n", .{ alias, lid, c_idx, lid, c_idx });
+                        try self.emit("        _ = &{s};\n", .{alias});
+                    }
+
+                    if (cl.condition) |cond| {
+                        try self.emit("        if ((", .{});
+                        try self.transpileExpr(cond);
+                        try self.emit(").toBool()) {{\n", .{});
+                    }
                 }
-                
-                try self.emit("    }}\n", .{});
-                try self.emit("    break :blk_{d} _l_{d};\n", .{lid, lid});
+
+                try self.emit("        _l_{d}.append(alloc, ", .{lid});
+                try self.transpileExpr(l.expression);
+                try self.emit(") catch unreachable;\n", .{});
+
+                var r_idx: usize = l.clauses.items.len;
+                while (r_idx > 0) {
+                    r_idx -= 1;
+                    const cl = l.clauses.items[r_idx];
+                    if (cl.condition != null) {
+                        try self.emit("        }}\n", .{});
+                    }
+                    try self.emit("    }}\n", .{});
+                }
+
+                try self.emit("    break :blk_{d} _l_{d};\n", .{ lid, lid });
                 try self.emit("}} }} }} }}", .{});
             },
             .dict_expr => |d| {

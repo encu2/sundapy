@@ -232,7 +232,11 @@ pub fn transpileStrictBuiltinCall(self: *Transpiler, c: anytype, name: []const u
     const builtins_multi = [_][]const u8{ "zip", "open", "complex", "dir", "getattr", "setattr", "hasattr", "delattr", "filter", "map", "iter", "next", "help", "memoryview", "slice", "vars", "__import__" };
     for (builtins_multi) |b| {
         if (std.mem.eql(u8, name, b)) {
-            try self.emit("Dynamic.builtin_{s}(alloc, &[_]Dynamic{{", .{name});
+            if (std.mem.eql(u8, name, "getattr")) {
+                try self.emit("@import(\"datatype/dynamic/builtins.zig\").builtin_getattr(alloc, &[_]Dynamic{{", .{});
+            } else {
+                try self.emit("Dynamic.builtin_{s}(alloc, &[_]Dynamic{{", .{name});
+            }
             for (c.args.items, 0..) |arg, idx| {
                 try self.transpileExpr(arg);
                 if (idx < c.args.items.len - 1) try self.emit(", ", .{});

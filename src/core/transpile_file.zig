@@ -19,20 +19,23 @@ fn isPythonStdlib(mod: []const u8) bool {
     return false;
 }
 
-pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8, visited: *SharedVisited, threads: *std.ArrayList(std.Thread), is_root: bool, mod_name: ?[]const u8) !void {
+pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8, visited: *SharedVisited, threads: *std.ArrayList(std.Thread), is_root: bool, mod_name: ?[]const u8, is_speculative: bool) !void {
     if (try visited.containsAndPut(io, file_path)) return;
 
     const cwd = std.Io.Dir.cwd();
     const script_content = cwd.readFileAlloc(io, file_path, allocator, @enumFromInt(10 * 1024 * 1024)) catch |err| {
-        std.debug.print("Could not read imported file: {s} (error: {any})\n", .{file_path, err});
-        return;
+        if (!is_speculative) std.debug.print("Could not read imported file: {s} (error: {any})\n", .{file_path, err});
+        return err;
     };
     defer allocator.free(script_content);
     
     var lexer = @import("../lexer/lexer.zig").Lexer.init(allocator, script_content);
     defer lexer.deinit();
 
-    var parser = @import("../parser/parser.zig").Parser.init(allocator, &lexer);
+    var parser = if (is_speculative)
+        @import("../parser/parser.zig").Parser.initQuiet(allocator, &lexer)
+    else
+        @import("../parser/parser.zig").Parser.init(allocator, &lexer);
     var program = parser.parseProgram() catch |err| {
         if (!is_root) return err;
         std.debug.print("Syntax error during parsing {s}: {}\n", .{file_path, err});
@@ -250,12 +253,12 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             const mod_file = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{resolved_dir, mod_slash});
             defer allocator.free(mod_file);
             if (cwd.access(io, mod_file, .{})) |_| {
-                try transpileFile(allocator, io, mod_file, visited, threads, false, target_mod_name);
+                try transpileFile(allocator, io, mod_file, visited, threads, false, target_mod_name, is_speculative);
             } else |_| {
                 const init_file = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{resolved_dir, mod_slash});
                 defer allocator.free(init_file);
                 if (cwd.access(io, init_file, .{})) {
-                    try transpileFile(allocator, io, init_file, visited, threads, false, target_mod_name);
+                    try transpileFile(allocator, io, init_file, visited, threads, false, target_mod_name, is_speculative);
                 } else |_| {
                     const cache_py = try std.fmt.allocPrint(allocator, ".cache/pyLibrary/{s}.py", .{mod_slash});
                     defer allocator.free(cache_py);
@@ -274,7 +277,7 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
                             // Pure Python package in .cache/pyLibrary -> attempt native Zig transpilation first!
                             const pure_file = if (in_cache_py) cache_py else cache_init;
                             std.debug.print("Found pure Python library '{s}' in .cache/pyLibrary, attempting native Zig transpilation...\n", .{mod});
-                            transpileFile(allocator, io, pure_file, visited, threads, false, mod) catch |err| {
+                            transpileFile(allocator, io, pure_file, visited, threads, false, mod, true) catch |err| {
                                 std.debug.print("Native transpilation for '{s}' encountered {any}, falling back to Python ABI bridge...\n", .{ mod, err });
                                 try bridgeViaPythonAbi(allocator, io, mod, mod_slash);
                             };
