@@ -12,6 +12,7 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
         .assign => |a| try @import("stmt/stmt_assign.zig").transpileAssign(self, a, declared_vars),
         .ann_decl => |ad| try @import("stmt/stmt_assign.zig").transpileAnnDecl(self, ad, declared_vars),
         .tuple_assign => |t| try @import("stmt/stmt_assign.zig").transpileTupleAssign(self, t, declared_vars),
+        .chained_assign => |ca| try @import("stmt/stmt_assign.zig").transpileChainedAssign(self, ca, declared_vars),
         .const_assign => |a| try @import("stmt/stmt_assign.zig").transpileConstAssign(self, a, declared_vars),
         .subscript_assign => |s| try @import("stmt/stmt_assign.zig").transpileSubscriptAssign(self, s),
         .setattr => |s| {

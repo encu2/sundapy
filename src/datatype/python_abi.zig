@@ -200,6 +200,26 @@ pub const sundapyBridge = struct {
         return Dynamic{ .value = .{ .py_obj_type = evalCoro(method_obj.?) } };
     }
 
+    pub fn setAttribute(obj: *anyopaque, attr: []const u8, val: Dynamic) !void {
+        const _gstate = sym.fn_PyGILState_Ensure();
+        defer sym.fn_PyGILState_Release(_gstate);
+        if (sym.lib == null) return error.PythonNotLoaded;
+
+        if (sym.fn_PyObject_SetAttrString) |pySetAttr| {
+            var attr_c: [256]u8 = undefined;
+            if (attr.len >= 256) return error.AttributeTooLong;
+            @memcpy(attr_c[0..attr.len], attr);
+            attr_c[attr.len] = 0;
+
+            const py_val = try conv.dynamicToPyObject(val);
+            defer sym.fn_Py_DecRef(py_val);
+            if (pySetAttr(obj, @ptrCast(&attr_c), py_val) < 0) {
+                sym.fn_PyErr_Clear();
+                return error.PythonError;
+            }
+        }
+    }
+
     pub fn evalCoro(obj: *anyopaque) *anyopaque {
         const builtins_name = sym.fn_PyUnicode_FromStringAndSize("builtins", 8);
         const builtins_mod = sym.fn_PyImport_Import(builtins_name.?);

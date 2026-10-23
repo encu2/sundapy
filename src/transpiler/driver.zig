@@ -284,12 +284,14 @@ pub fn transpile(self: *Transpiler, program: std.ArrayList(*ast.Node)) ![]const 
                     }
                 }
             }
-        } else if (stmt.* == .tuple_assign) {
-            for (stmt.tuple_assign.targets.items) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
+        } else if (stmt.* == .tuple_assign or stmt.* == .chained_assign) {
+            const targets = if (stmt.* == .tuple_assign) stmt.tuple_assign.targets.items else stmt.chained_assign.targets.items;
+            for (targets) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
         } else if (stmt.* == .compound_stmt) {
             for (stmt.compound_stmt.items.items) |cs| {
-                if (cs.* == .tuple_assign) {
-                    for (cs.tuple_assign.targets.items) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
+                if (cs.* == .tuple_assign or cs.* == .chained_assign) {
+                    const targets = if (cs.* == .tuple_assign) cs.tuple_assign.targets.items else cs.chained_assign.targets.items;
+                    for (targets) |tgt| try emitGlobalTupleTarget(self, tgt, &global_vars);
                 }
             }
         } else if (stmt.* == .def_stmt) {

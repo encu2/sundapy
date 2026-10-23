@@ -57,6 +57,7 @@ pub const Node = union(enum) {
     subscript: struct { target: *Node, index: *Node },
     subscript_assign: struct { target: *Node, index: *Node, value: *Node },
     tuple_assign: struct { targets: std.ArrayList(*Node), value: *Node },
+    chained_assign: struct { targets: std.ArrayList(*Node), value: *Node },
     slice: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node },
     slice_assign: struct { target: *Node, start: ?*Node, stop: ?*Node, step: ?*Node, value: *Node },
     ternary_expr: struct { condition: *Node, true_expr: *Node, false_expr: *Node },

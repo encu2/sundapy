@@ -99,13 +99,19 @@ pub fn transpileTupleAssign(self: *Transpiler, t: anytype, declared_vars: *std.S
 }
 
 fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, declared_vars: *std.StringHashMap(bool)) anyerror!void {
+    var buf: [64]u8 = undefined;
+    const val_expr = try std.fmt.bufPrint(&buf, "_tmp_{d}_{d}", .{ lid, idx });
+    try emitTargetAssignFrom(self, tgt, val_expr, declared_vars);
+}
+
+fn emitTargetAssignFrom(self: *Transpiler, tgt: *ast.Node, val_expr: []const u8, declared_vars: *std.StringHashMap(bool)) anyerror!void {
     switch (tgt.*) {
         .starred => |s| {
-            try emitTargetAssign(self, s.value, lid, idx, declared_vars);
+            try emitTargetAssignFrom(self, s.value, val_expr, declared_vars);
         },
         .identifier => |id| {
             if (self.scoped_aliases.get(id.name)) |alias| {
-                try self.emit("{s} = _tmp_{d}_{d};\n", .{ alias, lid, idx });
+                try self.emit("{s} = {s};\n", .{ alias, val_expr });
                 return;
             }
             const name = try self.escapeKeyword(id.name);
@@ -113,16 +119,29 @@ fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, d
             const already_declared = declared_vars.contains(id.name);
             if (!already_declared) {
                 try declared_vars.put(id.name, true);
-                try self.emit("var {s} = _tmp_{d}_{d};\n", .{ name, lid, idx });
+                try self.emit("var {s} = {s};\n", .{ name, val_expr });
                 try self.emitIndent();
                 try self.emit("_ = &{s};\n", .{name});
             } else {
-                try self.emit("{s} = _tmp_{d}_{d};\n", .{ name, lid, idx });
+                try self.emit("{s} = {s};\n", .{ name, val_expr });
             }
         },
         .getattr => |g| {
+            try self.emit("if (comptime @TypeOf(", .{});
             try self.transpileExpr(g.target);
-            try self.emit(".{s} = _tmp_{d}_{d};\n", .{ g.attr, lid, idx });
+            try self.emit(") == dynamic.Dynamic) {{\n", .{});
+            try self.emitIndent();
+            try self.emit("    _ = (", .{});
+            try self.transpileExpr(g.target);
+            try self.emit(").setAbiAttribute(\"{s}\", dynamic.Dynamic.fromAny({s}));\n", .{ g.attr, val_expr });
+            try self.emitIndent();
+            try self.emit("}} else {{\n", .{});
+            try self.emitIndent();
+            try self.emit("    ", .{});
+            try self.transpileExpr(g.target);
+            try self.emit(".{s} = {s};\n", .{ g.attr, val_expr });
+            try self.emitIndent();
+            try self.emit("}}\n", .{});
         },
         .subscript => |s| {
             if (self.try_depth == 0) {
@@ -131,11 +150,25 @@ fn emitTargetAssign(self: *Transpiler, tgt: *ast.Node, lid: usize, idx: usize, d
             try self.transpileExpr(s.target);
             try self.emit(".setDynamicItem(", .{});
             try self.transpileExpr(s.index);
-            try self.emit(", _tmp_{d}_{d});\n", .{ lid, idx });
+            try self.emit(", {s});\n", .{val_expr});
         },
         else => {
             try self.emit("// Unhandled tuple assign target\n", .{});
         },
+    }
+}
+
+pub fn transpileChainedAssign(self: *Transpiler, ca: anytype, declared_vars: *std.StringHashMap(bool)) anyerror!void {
+    self.label_counter += 1;
+    const lid = self.label_counter;
+    try self.emit("const _tmp_chain_{d} = Dynamic.fromAny(", .{lid});
+    try self.transpileExpr(ca.value);
+    try self.emit(");\n", .{});
+    var buf: [64]u8 = undefined;
+    const val_expr = try std.fmt.bufPrint(&buf, "_tmp_chain_{d}", .{lid});
+    for (ca.targets.items) |tgt| {
+        try self.emitIndent();
+        try emitTargetAssignFrom(self, tgt, val_expr, declared_vars);
     }
 }
 
