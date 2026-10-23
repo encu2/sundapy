@@ -296,16 +296,31 @@ pub fn parsePrefix(self: *Parser) anyerror!*ast.Node {
             node.* = .{ .yield_expr = .{ .value = val, .is_from = is_from } };
         },
         .KeywordLambda => {
-            // lambda args: body -- consume until newline or closing bracket
+            // lambda args: body -- consume until newline or closing delimiter at depth 0
             // We stub lambda as dummy_expr since it requires generator/closure support
-            while (self.current.type != .Newline and
-                   self.current.type != .Semicolon and
-                   self.current.type != .Comma and
-                   self.current.type != .RParen and
-                   self.current.type != .RBracket and
-                   self.current.type != .RBrace and
-                   self.current.type != .EOF)
-            {
+            var paren_depth: usize = 0;
+            var bracket_depth: usize = 0;
+            var brace_depth: usize = 0;
+            while (self.current.type != .EOF) {
+                const t = self.current.type;
+                if (paren_depth == 0 and bracket_depth == 0 and brace_depth == 0) {
+                    if (t == .Newline or t == .Semicolon or t == .Comma or t == .RParen or t == .RBracket or t == .RBrace) {
+                        break;
+                    }
+                }
+                if (t == .LParen) {
+                    paren_depth += 1;
+                } else if (t == .RParen) {
+                    if (paren_depth > 0) paren_depth -= 1;
+                } else if (t == .LBracket) {
+                    bracket_depth += 1;
+                } else if (t == .RBracket) {
+                    if (bracket_depth > 0) bracket_depth -= 1;
+                } else if (t == .LBrace) {
+                    brace_depth += 1;
+                } else if (t == .RBrace) {
+                    if (brace_depth > 0) brace_depth -= 1;
+                }
                 self.advance();
             }
             node.* = .{ .dummy_expr = .{ .desc = "lambda" } };
