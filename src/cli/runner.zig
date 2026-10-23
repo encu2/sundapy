@@ -205,7 +205,7 @@ pub fn main(ctx: std.process.Init) !void {
                 compiler.global_missing_initialized = false;
             }
 
-            try compiler.transpileFile(allocator, io, final_script, &visited, &threads, true, null);
+            try compiler.transpileFile(allocator, io, final_script, &visited, &threads, true, null, false);
 
             for (threads.items) |t| {
                 t.join();

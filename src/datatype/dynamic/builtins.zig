@@ -292,9 +292,28 @@ const mapping = @import("../mapping.zig");
         unreachable;
     }
     pub fn builtin_getattr(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
-        _ = alloc; _ = args;
-        std.debug.panic("NotImplementedError: getattr() stub\n", .{});
-        unreachable;
+        _ = alloc;
+        if (args.len < 2) return Dynamic.initNone();
+        const obj = args[0];
+        const attr_dyn = args[1];
+        const default_val = if (args.len >= 3) args[2] else Dynamic.initNone();
+
+        var attr_name: []const u8 = "";
+        if (attr_dyn.value == .str_type) {
+            attr_name = attr_dyn.value.str_type;
+        } else {
+            return default_val;
+        }
+
+        if (obj.value == .py_obj_type) {
+            const res = obj.getAbiAttribute(attr_name);
+            if (res.value != .none_type) return res;
+            return default_val;
+        }
+
+        const res = obj.builtin_getattr(attr_name);
+        if (res.value != .none_type) return res;
+        return default_val;
     }
     pub fn builtin_setattr(alloc: std.mem.Allocator, args: []const Dynamic) Dynamic {
         _ = alloc; _ = args;

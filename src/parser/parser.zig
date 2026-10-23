@@ -28,13 +28,23 @@ pub const Parser = struct {
     lexer: *Lexer,
     current: Token,
     peek_token: Token,
+    quiet: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, lexer: *Lexer) Parser {
+        return initOpts(allocator, lexer, false);
+    }
+
+    pub fn initQuiet(allocator: std.mem.Allocator, lexer: *Lexer) Parser {
+        return initOpts(allocator, lexer, true);
+    }
+
+    pub fn initOpts(allocator: std.mem.Allocator, lexer: *Lexer, quiet: bool) Parser {
         var p = Parser{
             .allocator = allocator,
             .lexer = lexer,
             .current = undefined,
             .peek_token = undefined,
+            .quiet = quiet,
         };
         p.current = p.lexer.nextToken();
         p.peek_token = p.lexer.nextToken();
@@ -60,7 +70,9 @@ pub const Parser = struct {
         } else if (t == .Identifier and (self.current.type == .KeywordMatch or self.current.type == .KeywordFrom)) {
             self.advance();
         } else {
-            std.debug.print("ParseError on line {d} (expect): Expected {any}, got {any} '{s}'\n", .{self.current.line, t, self.current.type, self.current.lexeme});
+            if (!self.quiet) {
+                std.debug.print("ParseError on line {d} (expect): Expected {any}, got {any} '{s}'\n", .{self.current.line, t, self.current.type, self.current.lexeme});
+            }
             return error.ParseError;
         }
     }
@@ -107,7 +119,9 @@ pub const Parser = struct {
         if (self.match(.Semicolon)) return;
         if (self.current.type == .EOF or self.current.type == .Dedent) return;
         
-        std.debug.print("ParseError on line {d}: expected newline or semicolon at end of statement, got {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
+        if (!self.quiet) {
+            std.debug.print("ParseError on line {d}: expected newline or semicolon at end of statement, got {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
+        }
         return error.ParseError;
     }
 

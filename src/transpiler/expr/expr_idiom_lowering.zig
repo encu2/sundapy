@@ -72,22 +72,27 @@ pub fn extractMultidimPattern(allocator: std.mem.Allocator, node: *ast.Node) !?M
 
     while (true) {
         if (curr.* == .list_comp) {
-            if (curr.list_comp.condition != null or curr.list_comp.is_async) {
+            if (curr.list_comp.clauses.items.len != 1) {
                 dims.deinit(allocator);
                 return null;
             }
-            const iter = curr.list_comp.iterable;
+            const cl = curr.list_comp.clauses.items[0];
+            if (cl.condition != null or cl.is_async) {
+                dims.deinit(allocator);
+                return null;
+            }
+            const iter = cl.iterable;
             if (iter.* == .call and iter.call.callee.* == .identifier and std.mem.eql(u8, iter.call.callee.identifier.name, "range")) {
                 if (iter.call.args.items.len == 1) {
                     try dims.append(allocator, iter.call.args.items[0]);
-                    try targets.append(allocator, curr.list_comp.target);
+                    try targets.append(allocator, cl.target);
                     is_distinct = true;
                     curr = curr.list_comp.expression;
                     continue;
                 } else if (iter.call.args.items.len == 2) {
                     if (isZeroLiteral(iter.call.args.items[0])) {
                         try dims.append(allocator, iter.call.args.items[1]);
-                        try targets.append(allocator, curr.list_comp.target);
+                        try targets.append(allocator, cl.target);
                         is_distinct = true;
                         curr = curr.list_comp.expression;
                         continue;

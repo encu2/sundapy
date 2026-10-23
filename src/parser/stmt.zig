@@ -171,7 +171,7 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
                     type_ann = "...";
                     self.advance();
                 } else {
-                    std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
+                    if (!self.quiet) std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
                     return error.ParseError; // failing here
                 }
             }
@@ -205,7 +205,7 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
                 if (decorators.items.len > 0) return error.ParseError;
                 return try @import("stmt_control_parse.zig").parseForStmt(self, true);
             }
-            std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
+            if (!self.quiet) std.debug.print("ParseError on line {d}: syntax error at token {any} ('{s}')\n", .{self.current.line, self.current.type, self.current.lexeme});
             return error.ParseError;
         }
         if (self.match(.KeywordClass)) {
@@ -213,7 +213,7 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
         }
         
         if (decorators.items.len > 0) {
-            std.debug.print("ParseError on line {d}: unexpected decorator before {any}\n", .{self.current.line, self.current.type});
+            if (!self.quiet) std.debug.print("ParseError on line {d}: unexpected decorator before {any}\n", .{self.current.line, self.current.type});
             return error.ParseError;
         }
         if (self.match(.KeywordImport)) {

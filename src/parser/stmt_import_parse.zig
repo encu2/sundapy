@@ -83,7 +83,7 @@ pub fn parseFromImport(self: *Parser) anyerror!*ast.Node {
             @memset(dots_buf, '.');
             mod = dots_buf;
         } else {
-            std.debug.print("ParseError on line {d}: expected module name or '.' after 'from'\n", .{self.current.line});
+            if (!self.quiet) std.debug.print("ParseError on line {d}: expected module name or '.' after 'from'\n", .{self.current.line});
             return error.ParseError;
         }
     }
@@ -119,7 +119,7 @@ pub fn parseFromImport(self: *Parser) anyerror!*ast.Node {
             if (!self.match(.Comma)) {
                 while (self.match(.Newline)) {}
                 if (self.match(.RParen)) break;
-                std.debug.print("ParseError on line {d}: expected ',' or ')' in import list\n", .{self.current.line});
+                if (!self.quiet) std.debug.print("ParseError on line {d}: expected ',' or ')' in import list\n", .{self.current.line});
                 return error.ParseError;
             }
         } else {

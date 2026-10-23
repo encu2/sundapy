@@ -294,6 +294,22 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
             if (global_vars.contains(v)) continue;
             // Skip vars assigned at top level of function body; they will be declared with proper type inference at assignment site!
             if (top_level_assigned.contains(v)) continue;
+            if (self.escape_analyzer.variables.get(v)) |v_info| {
+                if (v_info.class == .stack and v_info.is_primitive) {
+                    try declared_vars.put(v, true);
+                    try self.emitIndent();
+                    const init_val: []const u8 = if (std.mem.eql(u8, v_info.primitive_type, "bool"))
+                        "false"
+                    else if (std.mem.startsWith(u8, v_info.primitive_type, "f"))
+                        "0.0"
+                    else
+                        "0";
+                    try self.emit("var {s}: {s} = {s};\n", .{ v, v_info.primitive_type, init_val });
+                    try self.emitIndent();
+                    try self.emit("_ = &{s};\n", .{v});
+                    continue;
+                }
+            }
             if (self.escape_analyzer.variables.getPtr(v)) |v_info| {
                 v_info.is_primitive = false;
             }

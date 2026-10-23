@@ -56,31 +56,12 @@ pub fn parseInfix(self: *Parser, left: *ast.Node) anyerror!*ast.Node {
                 kwargs.append(self.allocator, .{ .key = key, .value = val }) catch unreachable;
             } else {
                 var arg_expr = try self.parseExpr(.none);
-                if (self.current.type == .KeywordFor) {
-                    self.advance();
-                    var targets_buf: std.ArrayList(u8) = .empty;
-                    while (true) {
-                        try targets_buf.appendSlice(self.allocator, self.current.lexeme);
-                        try self.expect(.Identifier);
-                        if (self.match(.Comma)) {
-                            try targets_buf.append(self.allocator, ',');
-                        } else break;
-                    }
-                    const target_name = targets_buf.items;
-                    try self.expect(.KeywordIn);
-                    const iter_expr = try self.parseExpr(.logicalOr);
-                    var cond: ?*ast.Node = null;
-                    if (self.current.type == .KeywordIf) {
-                        self.advance();
-                        cond = try self.parseExpr(.logicalOr);
-                    }
+                if (self.current.type == .KeywordFor or (self.current.type == .KeywordAsync and self.peek_token.type == .KeywordFor)) {
+                    const clauses = try @import("expr_prefix.zig").parseCompClauses(self);
                     const comp_node = try self.allocator.create(ast.Node);
                     comp_node.* = .{ .list_comp = .{
                         .expression = arg_expr,
-                        .target = target_name,
-                        .iterable = iter_expr,
-                        .condition = cond,
-                        .is_async = false,
+                        .clauses = clauses,
                     } };
                     arg_expr = comp_node;
                 }

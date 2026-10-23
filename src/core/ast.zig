@@ -33,6 +33,13 @@ pub const CaseBranch = struct {
     body: std.ArrayList(*Node),
 };
 
+pub const CompClause = struct {
+    target: []const u8,
+    iterable: *Node,
+    condition: ?*Node = null,
+    is_async: bool = false,
+};
+
 pub const ItemsList = struct { items: std.ArrayList(*Node) };
 
 pub const Node = union(enum) {
@@ -73,7 +80,7 @@ pub const Node = union(enum) {
     yield_expr: struct { value: ?*Node, is_from: bool = false },
     list_expr: ItemsList,
     tuple_expr: ItemsList,
-    list_comp: struct { expression: *Node, target: []const u8, iterable: *Node, condition: ?*Node, is_async: bool },
+    list_comp: struct { expression: *Node, clauses: std.ArrayList(CompClause) },
     dict_expr: struct { keys: std.ArrayList(*Node), values: std.ArrayList(*Node) },
     import_stmt: struct { name: []const u8, alias: ?[]const u8 },
     from_import: struct { module: []const u8, name: []const u8, alias: ?[]const u8, level: usize = 0 },

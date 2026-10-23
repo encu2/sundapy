@@ -23,21 +23,23 @@ fn tryLowerSum(self: *Transpiler, c: anytype) anyerror!bool {
     if (c.args.items.len < 1 or c.args.items.len > 2) return false;
     if (c.args.items[0].* != .list_comp) return false;
     const comp = c.args.items[0].list_comp;
-    if (comp.is_async) return false;
+    if (comp.clauses.items.len != 1) return false;
+    const cl = comp.clauses.items[0];
+    if (cl.is_async) return false;
 
     self.label_counter += 1;
     const lid = self.label_counter;
 
-    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ comp.target, lid });
+    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ cl.target, lid });
     defer self.allocator.free(target_alias);
 
-    const prev_alias = self.scoped_aliases.get(comp.target);
-    try self.scoped_aliases.put(comp.target, target_alias);
+    const prev_alias = self.scoped_aliases.get(cl.target);
+    try self.scoped_aliases.put(cl.target, target_alias);
     defer {
         if (prev_alias) |prev| {
-            self.scoped_aliases.put(comp.target, prev) catch {};
+            self.scoped_aliases.put(cl.target, prev) catch {};
         } else {
-            _ = self.scoped_aliases.remove(comp.target);
+            _ = self.scoped_aliases.remove(cl.target);
         }
     }
 
@@ -51,7 +53,7 @@ fn tryLowerSum(self: *Transpiler, c: anytype) anyerror!bool {
     }
 
     try self.emit("    var _iter_{d} = dynamic.Dynamic.fromAny(", .{lid});
-    try self.transpileExpr(comp.iterable);
+    try self.transpileExpr(cl.iterable);
     try self.emit(");\n", .{});
 
     try self.emit("    var _idx_{d}: usize = 0;\n", .{lid});
@@ -59,7 +61,7 @@ fn tryLowerSum(self: *Transpiler, c: anytype) anyerror!bool {
     try self.emit("        var {s} = _iter_{d}.getItem(_idx_{d});\n", .{ target_alias, lid, lid });
     try self.emit("        _ = &{s};\n", .{target_alias});
 
-    if (comp.condition) |cond| {
+    if (cl.condition) |cond| {
         try self.emit("        if ((dynamic.Dynamic.fromAny(", .{});
         try self.transpileExpr(cond);
         try self.emit(")).toBool()) {{\n", .{});
@@ -84,28 +86,30 @@ fn tryLowerAny(self: *Transpiler, c: anytype) anyerror!bool {
     if (c.args.items.len != 1) return false;
     if (c.args.items[0].* != .list_comp) return false;
     const comp = c.args.items[0].list_comp;
-    if (comp.is_async) return false;
+    if (comp.clauses.items.len != 1) return false;
+    const cl = comp.clauses.items[0];
+    if (cl.is_async) return false;
 
     self.label_counter += 1;
     const lid = self.label_counter;
 
-    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ comp.target, lid });
+    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ cl.target, lid });
     defer self.allocator.free(target_alias);
 
-    const prev_alias = self.scoped_aliases.get(comp.target);
-    try self.scoped_aliases.put(comp.target, target_alias);
+    const prev_alias = self.scoped_aliases.get(cl.target);
+    try self.scoped_aliases.put(cl.target, target_alias);
     defer {
         if (prev_alias) |prev| {
-            self.scoped_aliases.put(comp.target, prev) catch {};
+            self.scoped_aliases.put(cl.target, prev) catch {};
         } else {
-            _ = self.scoped_aliases.remove(comp.target);
+            _ = self.scoped_aliases.remove(cl.target);
         }
     }
 
     try self.emit("(blk_{d}: {{\n", .{lid});
     try self.emit("    var _res_{d} = false;\n", .{lid});
     try self.emit("    var _iter_{d} = dynamic.Dynamic.fromAny(", .{lid});
-    try self.transpileExpr(comp.iterable);
+    try self.transpileExpr(cl.iterable);
     try self.emit(");\n", .{});
 
     try self.emit("    var _idx_{d}: usize = 0;\n", .{lid});
@@ -113,7 +117,7 @@ fn tryLowerAny(self: *Transpiler, c: anytype) anyerror!bool {
     try self.emit("        var {s} = _iter_{d}.getItem(_idx_{d});\n", .{ target_alias, lid, lid });
     try self.emit("        _ = &{s};\n", .{target_alias});
 
-    if (comp.condition) |cond| {
+    if (cl.condition) |cond| {
         try self.emit("        if ((dynamic.Dynamic.fromAny(", .{});
         try self.transpileExpr(cond);
         try self.emit(")).toBool()) {{\n", .{});
@@ -138,28 +142,30 @@ fn tryLowerAll(self: *Transpiler, c: anytype) anyerror!bool {
     if (c.args.items.len != 1) return false;
     if (c.args.items[0].* != .list_comp) return false;
     const comp = c.args.items[0].list_comp;
-    if (comp.is_async) return false;
+    if (comp.clauses.items.len != 1) return false;
+    const cl = comp.clauses.items[0];
+    if (cl.is_async) return false;
 
     self.label_counter += 1;
     const lid = self.label_counter;
 
-    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ comp.target, lid });
+    const target_alias = try std.fmt.allocPrint(self.allocator, "_{s}_{d}", .{ cl.target, lid });
     defer self.allocator.free(target_alias);
 
-    const prev_alias = self.scoped_aliases.get(comp.target);
-    try self.scoped_aliases.put(comp.target, target_alias);
+    const prev_alias = self.scoped_aliases.get(cl.target);
+    try self.scoped_aliases.put(cl.target, target_alias);
     defer {
         if (prev_alias) |prev| {
-            self.scoped_aliases.put(comp.target, prev) catch {};
+            self.scoped_aliases.put(cl.target, prev) catch {};
         } else {
-            _ = self.scoped_aliases.remove(comp.target);
+            _ = self.scoped_aliases.remove(cl.target);
         }
     }
 
     try self.emit("(blk_{d}: {{\n", .{lid});
     try self.emit("    var _res_{d} = true;\n", .{lid});
     try self.emit("    var _iter_{d} = dynamic.Dynamic.fromAny(", .{lid});
-    try self.transpileExpr(comp.iterable);
+    try self.transpileExpr(cl.iterable);
     try self.emit(");\n", .{});
 
     try self.emit("    var _idx_{d}: usize = 0;\n", .{lid});
@@ -167,7 +173,7 @@ fn tryLowerAll(self: *Transpiler, c: anytype) anyerror!bool {
     try self.emit("        var {s} = _iter_{d}.getItem(_idx_{d});\n", .{ target_alias, lid, lid });
     try self.emit("        _ = &{s};\n", .{target_alias});
 
-    if (comp.condition) |cond| {
+    if (cl.condition) |cond| {
         try self.emit("        if ((dynamic.Dynamic.fromAny(", .{});
         try self.transpileExpr(cond);
         try self.emit(")).toBool()) {{\n", .{});
