@@ -46,6 +46,13 @@ pub fn isRecursive(node: *ast.Node, func_name: []const u8) bool {
             }
             return false;
         },
+        .chained_assign => |ca| {
+            if (isRecursive(ca.value, func_name)) return true;
+            for (ca.targets.items) |tgt| {
+                if (isRecursive(tgt, func_name)) return true;
+            }
+            return false;
+        },
         .slice => |s| return isRecursive(s.target, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
         .slice_assign => |s| return isRecursive(s.target, func_name) or isRecursive(s.value, func_name) or (if (s.start) |n| isRecursive(n, func_name) else false) or (if (s.stop) |n| isRecursive(n, func_name) else false) or (if (s.step) |n| isRecursive(n, func_name) else false),
         .yield_stmt => |y| {

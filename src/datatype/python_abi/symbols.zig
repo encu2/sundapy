@@ -10,6 +10,7 @@ pub var fn_PyNumber_FloorDivide: ?*const fn (*anyopaque, *anyopaque) callconv(.c
 pub var fn_PyNumber_Remainder: ?*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque = null;
 pub var fn_PyNumber_Power: ?*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) ?*anyopaque = null;
 pub var fn_PyCallable_Check: ?*const fn (*anyopaque) callconv(.c) c_int = null;
+pub var fn_PyObject_SetAttrString: ?*const fn (*anyopaque, [*c]const u8, *anyopaque) callconv(.c) c_int = null;
 pub var fn_PyObject_SetItem: ?*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) c_int = null;
 pub var fn_PySlice_New: ?*const fn (?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = null;
 pub var fn_PyObject_DelItem: ?*const fn (*anyopaque, *anyopaque) callconv(.c) c_int = null;
@@ -139,6 +140,7 @@ pub fn loadSymbols() !void {
     fn_PyNumber_Remainder = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Remainder");
     fn_PyNumber_Power = lib.?.lookup(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) ?*anyopaque, "PyNumber_Power");
     fn_PyCallable_Check = lib.?.lookup(*const fn (*anyopaque) callconv(.c) c_int, "PyCallable_Check");
+    fn_PyObject_SetAttrString = lib.?.lookup(*const fn (*anyopaque, [*c]const u8, *anyopaque) callconv(.c) c_int, "PyObject_SetAttrString");
     fn_PyObject_SetItem = lib.?.lookup(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) c_int, "PyObject_SetItem");
     fn_PySlice_New = lib.?.lookup(*const fn (?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque, "PySlice_New");
     fn_PyObject_DelItem = lib.?.lookup(*const fn (*anyopaque, *anyopaque) callconv(.c) c_int, "PyObject_DelItem");

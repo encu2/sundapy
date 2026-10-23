@@ -40,6 +40,10 @@ fn collectVars(node: *ast.Node, vars: *std.StringHashMap(bool)) anyerror!void {
             for (ta.targets.items) |tgt| try collectTargetVars(tgt, vars);
             try collectVars(ta.value, vars);
         },
+        .chained_assign => |ca| {
+            for (ca.targets.items) |tgt| try collectTargetVars(tgt, vars);
+            try collectVars(ca.value, vars);
+        },
         .compound_stmt => |cs| {
             for (cs.items.items) |stmt| try collectVars(stmt, vars);
         },
@@ -272,8 +276,9 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
     for (d.body.items) |stmt| {
         if (stmt.* == .assign) {
             try top_level_assigned.put(stmt.assign.target, true);
-        } else if (stmt.* == .tuple_assign) {
-            for (stmt.tuple_assign.targets.items) |tgt| {
+        } else if (stmt.* == .tuple_assign or stmt.* == .chained_assign) {
+            const targets = if (stmt.* == .tuple_assign) stmt.tuple_assign.targets.items else stmt.chained_assign.targets.items;
+            for (targets) |tgt| {
                 try collectTargetVars(tgt, &top_level_assigned);
             }
         }

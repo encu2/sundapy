@@ -75,6 +75,11 @@ pub fn setAbiAttribute(self: Dynamic, attr: []const u8, val: Dynamic) bool {
     } else if (self.value == .gpu_buffer_type) {
         const buf: *@import("gpu_types.zig").GpuBuffer = @ptrCast(@alignCast(self.value.gpu_buffer_type));
         return @import("gpu_types.zig").setBufferAttribute(buf, attr, val);
+    } else if (self.value == .py_obj_type) {
+        if (self.value.py_obj_type) |obj| {
+            @import("python_abi.zig").sundapyBridge.setAttribute(obj, attr, val) catch return false;
+            return true;
+        }
     }
     return false;
 }

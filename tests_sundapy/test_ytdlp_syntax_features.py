@@ -198,4 +198,44 @@ res_pos_def = pos_default_fn(5)
 assert res_pos_def == 10
 print("Feature 8 (PEP 570 positional-only parameter): PASSED")
 
-print("\n>>> ALL 8 YT-DLP SYNTAX FEATURES VERIFIED SUCCESSFULLY! <<<")
+# ==============================================================================
+# Feature 9: Complex Targets (Attributes, Subscripts) in Unparenthesized & Parenthesized Tuples
+# ==============================================================================
+class OptsHolder:
+    def __init__(self):
+        self.remove_chapters = None
+        self.remove_ranges = None
+        self.sponsorblock_mark = None
+        self.sponsorblock_remove = None
+
+opts = OptsHolder()
+def parse_dummy_chapters(name, val):
+    return ["ch1"], [10, 20], True
+
+opts.remove_chapters, opts.remove_ranges, _ = parse_dummy_chapters('--remove-chapters', opts.remove_chapters)
+assert opts.remove_chapters == ["ch1"]
+assert opts.remove_ranges == [10, 20]
+assert _ is True
+print("Feature 9.1 (attribute targets in tuple unpack): PASSED")
+
+sub_dict = {}
+sub_dict["k1"], sub_dict["k2"] = 100, 200
+assert sub_dict["k1"] == 100
+assert sub_dict["k2"] == 200
+print("Feature 9.2 (subscript targets in tuple unpack): PASSED")
+
+# ==============================================================================
+# Feature 10: Chained Assignment (target1 = target2 = ... = value)
+# ==============================================================================
+chain_a = chain_b = chain_c = 42
+assert chain_a == 42
+assert chain_b == 42
+assert chain_c == 42
+print("Feature 10.1 (simple identifier chained assignment): PASSED")
+
+opts.sponsorblock_mark = opts.sponsorblock_remove = "mark_val"
+assert opts.sponsorblock_mark == "mark_val"
+assert opts.sponsorblock_remove == "mark_val"
+print("Feature 10.2 (attribute chained assignment): PASSED")
+
+print("\n>>> ALL 10 YT-DLP SYNTAX FEATURES VERIFIED SUCCESSFULLY! <<<")

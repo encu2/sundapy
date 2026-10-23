@@ -223,56 +223,14 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
             return try @import("stmt_import_parse.zig").parseFromImport(self);
         }
 
-        const is_first_starred = (self.current.type == .Star and self.peek_token.type == .Identifier);
-        const is_first_ident = (self.current.type == .Identifier and self.peek_token.type == .Comma);
-        if (is_first_starred or is_first_ident) {
-            var targets = std.ArrayList(*ast.Node).empty;
-            var has_comma = false;
-            if (is_first_starred) {
-                self.advance();
-                const inner = try self.allocator.create(ast.Node);
-                inner.* = .{ .identifier = .{ .name = self.current.lexeme } };
-                self.advance();
-                const s_node = try self.allocator.create(ast.Node);
-                s_node.* = .{ .starred = .{ .value = inner } };
-                try targets.append(self.allocator, s_node);
-            } else {
-                const first_id = try self.allocator.create(ast.Node);
-                first_id.* = .{ .identifier = .{ .name = self.current.lexeme } };
-                try targets.append(self.allocator, first_id);
-                self.advance();
-            }
-            while (self.match(.Comma)) {
-                has_comma = true;
-                if (self.match(.Star)) {
-                    const inner = try self.parseExpr(.factor);
-                    const s_node = try self.allocator.create(ast.Node);
-                    s_node.* = .{ .starred = .{ .value = inner } };
-                    try targets.append(self.allocator, s_node);
-                } else if (self.current.type == .Identifier) {
-                    const id = try self.parseExpr(.factor);
-                    try targets.append(self.allocator, id);
-                } else break;
-            }
-            if (self.match(.Eq)) {
-                if (!has_comma and is_first_starred and targets.items.len == 1) {
-                    std.debug.print("SyntaxError on line {d}: starred assignment target must be in a list or tuple\n", .{self.current.line});
-                    return error.ParseError;
-                }
-                return try @import("stmt_assign_parse.zig").parseTupleAssign(self, targets);
-            }
-        }
-
         if (self.current.type == .Identifier) {
             if (self.peek_token.type == .Eq) {
                 const target = self.current.lexeme;
                 self.advance(); 
                 self.advance(); 
-                const val = try self.parseExpr(.none);
-                try self.consumeStmtEnd();
-                const node = try self.allocator.create(ast.Node);
-                node.* = .{ .assign = .{ .target = target, .type_ann = null, .value = val } };
-                return node;
+                const target_node = try self.allocator.create(ast.Node);
+                target_node.* = .{ .identifier = .{ .name = target } };
+                return try @import("stmt_assign_parse.zig").parseAssignmentOrChained(self, target_node);
             } else if (isAugAssignOp(self.peek_token.type)) {
                 const target = self.current.lexeme;
                 self.advance();
@@ -326,13 +284,31 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
         }
 
         const expr = try self.parseExpr(.none);
-        
-        if (expr.* == .getattr and self.match(.Eq)) {
-            const val = try self.parseExpr(.none);
+
+        if (self.match(.Comma)) {
+            var items = std.ArrayList(*ast.Node).empty;
+            try items.append(self.allocator, expr);
+            while (self.current.type != .Newline and self.current.type != .Semicolon and self.current.type != .EOF and self.current.type != .Dedent and self.current.type != .Eq) {
+                const item = try self.parseExpr(.none);
+                try items.append(self.allocator, item);
+                if (!self.match(.Comma)) break;
+            }
+            if (self.match(.Eq)) {
+                return try @import("stmt_assign_parse.zig").parseTupleAssign(self, items);
+            }
             try self.consumeStmtEnd();
-            const node = try self.allocator.create(ast.Node);
-            node.* = .{ .setattr = .{ .target = expr.getattr.target, .attr = expr.getattr.attr, .value = val } };
-            return node;
+            const tup = try self.allocator.create(ast.Node);
+            tup.* = .{ .tuple_expr = .{ .items = items } };
+            return tup;
+        }
+
+        if (expr.* == .starred and self.match(.Eq)) {
+            std.debug.print("SyntaxError on line {d}: starred assignment target must be in a list or tuple\n", .{self.current.line});
+            return error.ParseError;
+        }
+        
+        if ((expr.* == .getattr or expr.* == .subscript or expr.* == .list_expr or expr.* == .tuple_expr) and self.match(.Eq)) {
+            return try @import("stmt_assign_parse.zig").parseAssignmentOrChained(self, expr);
         } else if (expr.* == .getattr and isAugAssignOp(self.current.type)) {
             const op = augAssignOpToBinOp(self.current.type); self.advance();
             const val = try self.parseExpr(.none);
@@ -341,12 +317,6 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
             desugared_val.* = .{ .binary = .{ .left = expr, .op = op, .right = val } };
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .setattr = .{ .target = expr.getattr.target, .attr = expr.getattr.attr, .value = desugared_val } };
-            return node;
-        } else if (expr.* == .subscript and self.match(.Eq)) {
-            const val = try self.parseExpr(.none);
-            try self.consumeStmtEnd();
-            const node = try self.allocator.create(ast.Node);
-            node.* = .{ .subscript_assign = .{ .target = expr.subscript.target, .index = expr.subscript.index, .value = val } };
             return node;
         } else if (expr.* == .subscript and isAugAssignOp(self.current.type)) {
             const op = augAssignOpToBinOp(self.current.type); self.advance();
@@ -357,9 +327,6 @@ const parseCommaTuple = stmt_assign.parseCommaTuple;
             const node = try self.allocator.create(ast.Node);
             node.* = .{ .subscript_assign = .{ .target = expr.subscript.target, .index = expr.subscript.index, .value = desugared_val } };
             return node;
-        } else if ((expr.* == .list_expr or expr.* == .tuple_expr) and self.match(.Eq)) {
-            const items = if (expr.* == .list_expr) expr.list_expr.items else expr.tuple_expr.items;
-            return try @import("stmt_assign_parse.zig").parseTupleAssign(self, items);
         }
 
         try self.consumeStmtEnd();
