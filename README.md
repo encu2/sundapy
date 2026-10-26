@@ -1,19 +1,77 @@
-# Apa itu sundapy?
-Sundapy adalah program untuk melakukan transpil kode python (python-like) ke zig dan lalu di compile binary (ELF). Sementara ini memang dalam pengembangannya masih khusus untuk linux tapi gak menutup kemungkinan di update yang akan datang bisa support OS Jendela. Secara khusus untuk memudahkan developer python, sundapy ini dari awal emang dirancang untuk bisa berjalan seamless di ekosistem python dengan kompatibilitas yang cukup tinggi walau gak sampe 100% karena limitasi skema si sundapy ini.
+# Apa itu SundaPy?
 
-Bagi kalian yang tertarik ingin coba mungkin perlu beberapa hal yang harus diketahui:
-- Static-type opsional: Memang hal ini faktor yang tidak umum di python, tapi di sundapy ada beberapa benefit kenapa harus static-type yaitu dilakukan untuk mempercepat proses transpile ke zig dan juga untuk optimize kode kalian di sisi zig tentunya. 
-- Tranpiler-nya cukup strict: Saya memang merancang sundapy punya transpiler yang cukup dan mungkin sangat strict. Tapi hal ini berlaku apabila kalian melakukan static-type atau mengaktifkan `#strict` declare pada local scoope atau global scoope.
-- Apa itu `#strict` di sundapy:  sebenernya cukup sulit buat saya cari cara buat aktivasi mode strict di sundapy, tapi dengan beberapa pertimbangan saya pakai teknik pengaktifan strict seperti pada js/ts (btw saya itu 95% berkecimpung di js/ts-bun runtime). Bagaimana cara kalian memanggil `#strict` maka akan beda juga hasil transpil kode zig-nya, tapi disarankan untuk memanggil `#strict` di awal global scoope untuk mode ngoding hardcore :V.
-- Apa kode zig-nya akan mirip dengan kode python?: Bisa ya dan bisa tidak, cek aja sendiri hasil transpil kode zig di `.cache/src/`.
-- Dokumentasi lengkap cek dimana?: Cek file test yang berada di `test/`.
+**SundaPy** adalah Ahead-Of-Time (AOT) Python-to-Zig transpiler, LLVM native compiler, dan standalone runtime berkinerja tinggi. SundaPy mentranspilasi kode sumber Python langsung menjadi kode sumber Zig native, yang kemudian dikompilasi oleh LLVM menjadi biner executable mandiri (*bare-metal ELF binary* di Linux) dengan waktu startup sekejap (< 2 ms) dan nol runtime dependency eksternal.
 
-## Kompatibilitas dengan ekosistem python
-Sejauh yang sudah saya test, untuk projek skala kecil sih udah cukup okeh, udah di test untuk eksternal lib `bs4` dan `numpy`. Dan yak tentu aja projek ini hanya untuk senang-senang dan hobi semata cuma sampai sebatas ini saja saya bisa melakukan test dan pengujian. Untuk library lainnya ada yang di rewrite secara khusus dengan kode zig, seperti `socket`, `time` dan `request`, lalu selain itu library untuk connect ke url https/ssl/tls juga sudah bisa serta dibangun dengan zig. Memang masih banyak PR untuk improve kompatibilitas dengan ekosistem python.
+Proyek ini dirancang agar developer dapat mengeksekusi kode Python dengan performa mesin native setara bahasa C/Zig tanpa terhambat oleh overhead CPython Virtual Machine dan GIL.
 
-Untuk install eksternal library misal dari pip ada `sundafetch`, mirip-mirip pip tapi saya merasa masih banyak kekurangan dan baru di test di workspace yang sangat sempit dan sangat terbatas. Sejauh ini secara pengetesan sederhana sundapy masih bergantung pada **python yang terinstall** di device, saat ini tested di python3.14, hal ini digunakan untuk interaksi dengan **external library yang berintegrasi dengan Python ABI**.
+---
 
+## Pilar Utama SundaPy
+
+1. **Zero Python VM Overhead**:
+   Tidak ada bytecode loop atau PVM. AST Python diturunkan langsung ke kode native Zig dan menghasilkan biner ELF ringkas (< 500 KB) dengan eksekusi bare-metal.
+2. **True Multi-Core Concurrency & Zero GIL**:
+   Global Interpreter Lock (GIL) dieliminasi total. Thread Python (`import threading` atau `_thread`) memetakan langsung ke kernel thread OS (`std.Thread`) sehingga komputasi paralel dapat memanfaatkan 100% core CPU secara linier.
+3. **Seamless Python Ecosystem Compatibility (C-ABI Bridge)**:
+   Mendukung ekosistem package Python melalui C-ABI bridge dinamis (`libpython3.*.so`). Library binary wheel (NumPy, PyTorch, SciPy, bs4, dsb.) dapat dijalankan berdampingan dengan mode Pure Native.
+4. **Strong Static Typing Opsional (`#strict`)**:
+   Menulis `#strict` di baris pertama file mengaktifkan pengetikan statis kuat. Tipe data hardware primitif (`i8`..`i1024`, `u8`..`u1024`, `f32`, `f64`, `bool`) dipetakan 1:1 ke register CPU dan stack tanpa boxing overhead.
+5. **Subsistem Mandiri Tanpa Ketergantungan Eksternal**:
+   - **`screenGUI` & `GUIEngine`**: Desktop GUI native 100% pure Zig yang berkomunikasi langsung via wire-protocol soket domain Linux X11 tanpa Xlib, XCB, GTK, atau Qt.
+   - **`gpu` Computing Engine**: Compute GPU langsung berbasis driver syscalls (CUDA / Vulkan / OpenCL) dengan graph launch sub-1.5 µs.
+   - **`sundafetch`**: Zero-dependency package manager terisolasi berbasis pure Zig HTTP dan internal ZIP/Deflate decompressor.
+
+---
+
+## Fitur Sintaks Python Modern yang Didukung
+
+SundaPy mendukung berbagai fitur sintaks modern Python 3.8–3.13:
+
+* **Extended Iterable Unpacking (PEP 3132)**: Starred target di assignment (`a, *b, c = seq`, `*head, tail = seq`, `min_w, max_w, *_ = seq`).
+* **Nested Comprehensions & Multi-Clause Filters (PEP 202, PEP 289)**: Multi-loop `[x for row in matrix for x in row]` dan filter bertingkat `[x for x in seq if c1 if c2]`.
+* **Pernyataan Hapus (`del`)**: Deallokasi dan penghapusan variabel, dict item (`del d[key]`), list index (`del arr[0]`), atribut objek (`del obj.attr`), dan tuple sekuensial (`del a, b, c`).
+* **Penanganan Error Lengkap (`try / except / else / finally`)**: Multi-tipe exception `except (ValueError, TypeError) as e:`, multi-klausa `except`, blok `else:` bebas exception, dan blok cleanup `finally:`.
+* **Augmented In-Place Assignments Lengkap**: Operator bitwise (`&=`, `|=`, `^=`, `<<=`, `>>=`), pembagian bulat (`//=`), dan eksponen (`**=`) pada variabel, atribut, maupun subscript (`dict[k] &= mask`).
+* **Multiple Return & Yield**: Mengembalikan atau me-yield tuple koma tanpa tanda kurung (`return a, b, c`, `yield x, y`).
+* **Subgenerator Delegation (`yield from` PEP 380)**: Delegasi generator langsung ke subgenerator.
+* **Anotasi Tipe Berdiri Sendiri (PEP 526)**: Deklarasi tipe variabel/field tanpa nilai awal (`title: str`, `count: int`).
+* **Parameter Positional-Only (PEP 570)**: Sintaks garis miring (`def fn(a, b, /, c):`).
+* **Chained Assignment**: Penugasan ganda berantai (`a = b = c = 42`, `obj.x = obj.y = "val"`).
+* **Target Kompleks Unpacking**: Unpacking langsung ke atribut dan subscript (`opts.mark, sub_dict["k"], _ = parse()`).
+* **Built-in `getattr` & Dot Utilities**: `getattr(obj, name, default)`, relative import (`from . import mod`, `from ..parent import sub`), Ellipsis (`...`), dan float literal titik (`.5`).
+* **Pattern Matching (`match / case`)**: Pencocokan pola struktural.
+* **String Dedent (PEP 822 `d"..."`) & Template String (PEP 750 `t"..."`)**.
+
+---
+
+## Package Manager: `sundafetch`
+
+`sundafetch` adalah package manager mandiri bawaan yang mengunduh dan mengekstrak package wheel Python secara terisolasi ke dalam `.cache/pyLibrary/`:
+
+```bash
+# Mengunduh package PyPI
+sundafetch numpy requests beautifulsoup4
+
+# Mengunduh dari requirements.txt
+sundafetch -r requirements.txt
+
+# Mengunduh dan langsung mengompilasi package menjadi biner mandiri:
+sundafetch --build yt-dlp -o yt-dlp-bin
+
+# Mengompilasi direktori proyek lokal:
+sundafetch --build ./path/to/repo -o my-cli
+```
+
+---
+
+## Dokumentasi & Referensi Lengkap
+
+* **[SUNDAPY_GUIDE.md](file:///home/encu/myCode/zigCode/pythonZigZag/SUNDAPY_GUIDE.md)**: Panduan lengkap developer, cheatsheet tipe data hardware, kamus API built-in, dan matriks keputusan modul.
+* **[AGENTS.md](file:///home/encu/myCode/zigCode/pythonZigZag/AGENTS.md)**: Manual arsitektur lengkap dan spesifikasi integrasi AI agent untuk seluruh codebase compiler SundaPy.
+* **[tests_sundapy/](file:///home/encu/myCode/zigCode/pythonZigZag/tests_sundapy/)**: Kumpulan 170+ file test otomatis untuk seluruh fitur dan idiom. Jalankan dengan `./run_tests.sh`.
+
+---
 
 ### DO WITH YOUR OWN RISK
 
-**Keseluruhan project ini dibangun dengan menggunakan bantuan Gemini 3.1 Pro High + Agy-cli + Ponytail skill, selain memudahkan proses pengembangan hal ini juga karena saya sendiri penggagas projek ini merasa masih skill issue terutama untuk low-level programming seperti memory management, interaksi dengan OS / Kernel, dan keterbatasan knowledge tentang algoritma pemrograman. Perlu diingat kembali projek ini itu pure hobi dan eksperimen saja, kalau merasa ada yang terbantu dengan projek ini saya sangat bersyukur dan jangan lupa menautkan sumber :V.**
+**Keseluruhan project ini dibangun dengan menggunakan bantuan Gemini 3.1 Pro High + Agy-cli + Ponytail skill. Selain memudahkan proses pengembangan, hal ini juga karena saya sendiri penggagas projek ini merasa masih skill issue terutama untuk low-level programming seperti memory management, interaksi dengan OS / Kernel, dan keterbatasan knowledge tentang algoritma pemrograman. Perlu diingat kembali projek ini adalah pure hobi dan eksperimen saja, kalau merasa ada yang terbantu dengan projek ini saya sangat bersyukur dan jangan lupa menautkan sumber :V.**

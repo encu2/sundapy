@@ -78,16 +78,42 @@ Jangan gunakan `#strict` jika:
   ```
 * **Kelas & OOP (`class`):**
   Mendukung atribut bertipe hardware (`x: f64`), konstruktor `__init__`, dan pewarisan.
-* **Penanganan Error (`try / except / finally`):**
-  Blok pengaman eksekusi exception runtime.
+* **Penanganan Error Lengkap (`try / except / else / finally`):**
+  - Multi-tipe tuple: `except (ValueError, TypeError) as err:`
+  - Multi-klausa sequential `except` dengan fallback bare `except:`
+  - Blok `else:` (dijalankan jika tidak ada exception yang dilempar)
+  - Blok `finally:` (dijalankan tanpa syarat untuk pembersihan resource)
+* **Pernyataan Hapus (`del`):**
+  Menghapus variabel (`del var`), item dictionary (`del d[key]`), indeks list (`del lst[idx]`), atribut objek (`del obj.attr`), maupun sekuens tuple (`del a, b, c`).
+* **Unpacking Fleksibel (PEP 3132 Starred Unpacking):**
+  Mendukung target berbintang di mana saja: `a, *b, c = seq`, `*head, tail = seq`, atau `x, y, *_ = seq`.
+* **Chained Assignment & Target Kompleks:**
+  - Penugasan berantai: `a = b = c = 42` dan `obj.x = obj.y = "val"`.
+  - Target kompleks pada unpacking tuple: `opts.flag, sub_dict["key"], _ = get_data()`.
+* **Augmented In-Place Assignments Lengkap:**
+  Mendukung seluruh operator bitwise (`&=`, `|=`, `^=`, `<<=`, `>>=`), pembagian bulat (`//=`), perpangkatan (`**=`), serta aritmatika standar pada variabel, atribut objek, maupun subscript (`dict[k] &= mask`).
+* **Comprehension Bersarang & Multi-If (PEP 202, PEP 289):**
+  - Multi-loop: `[x for row in matrix for x in row]`
+  - Multi-filter: `[x for x in seq if cond1 if cond2]`
+* **Multiple Return & Yield Tanpa Kurung:**
+  Mengembalikan atau me-yield tuple koma secara langsung: `return config, path, True` dan `yield x, y`.
+* **Delegasi Generator (`yield from` PEP 380):**
+  Meneruskan sekuens dari child generator secara native: `yield from sub_generator()`.
+* **Anotasi Tipe Berdiri Sendiri (PEP 526):**
+  Mendeklarasikan tipe variabel atau atribut kelas tanpa inisialisasi instan: `title: str`, `count: int`.
+* **Parameter Positional-Only (PEP 570):**
+  Mendukung sintaks tanda garis miring: `def hitung(a, b, /, c):`.
 * **Konkurensi (`async def / await`):**
-  Mendefinisikan coroutine asinkron non-blocking.
+  Mendefinisikan coroutine asinkron non-blocking pada native event loop.
+* **Import Relatif & Utilitas Dot Python:**
+  Mendukung import relatif paket (`from . import helper`, `from ..parent import sub`), simbol Ellipsis (`...`), dan literal float titik (`.5`, `.125`).
 
 ---
 
 ## 5. FUNGSI-FUNGSI BAWAAN (BUILT-IN)
 
 * `print(*args)`: Mencetak ke konsol tanpa alokasi buffer string Python.
+* `getattr(obj, name, default)`: Membaca atribut objek secara dinamis atau mengembalikan nilai default bila tidak ada.
 * `len(obj)`: Membaca ukuran array/list secara $O(1)$.
 * `range(start, stop, step)`: Iterator angka hardware.
 * `abs(x)`, `min(*args)`, `max(*args)`, `sum(iter)`: Pemetaan ke instruksi aritmatika CPU.

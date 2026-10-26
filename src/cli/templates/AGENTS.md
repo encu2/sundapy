@@ -302,9 +302,46 @@ SundaPy provides a high-throughput, bare-metal GPU computing engine:
   ```
 
 ### 5.6 Modern Python Syntax & PEP Features
+SundaPy supports a comprehensive suite of modern Python 3.8–3.13 syntax constructs, PEP specifications, and advanced control flow features lowered directly to native machine instructions:
+
+- **Extended Iterable Unpacking (PEP 3132)**:
+  Supports starred targets anywhere in assignment unpacking (`a, *b, c = seq`, `*head, tail = seq`, `min_w, max_w, *_ = seq`). Lowered directly to slice operations without allocating intermediate wrapper lists.
+- **Nested Comprehensions & Multi-Clause Filters (PEP 202, PEP 289)**:
+  Full multi-level nested `for` clauses in list, dict, and set comprehensions (e.g. `[x for row in matrix for x in row]`) and multi-clause `if` filters (`[x for x in seq if cond1 if cond2]`).
+- **`del` Statement**:
+  Explicit deallocation and deletion targeting identifiers (`del var`), dictionary items (`del dict[key]`), list indices (`del list[idx]`), object attributes (`del obj.attr`), and comma-separated deletion sequences (`del a, b, c`).
+- **Multi-Clause Exception Handling (`try ... except ... else ... finally`)**:
+  Full exception handling matching Python semantics:
+  - Multi-type tuple exceptions: `except (TypeError, ValueError) as err:`.
+  - Multiple sequential `except` blocks per `try` statement with fallback bare `except:`.
+  - Non-throwing success branches (`else:`).
+  - Unconditional execution cleanup blocks (`finally:`).
+- **Augmented In-Place Assignments**:
+  - Full bitwise in-place operations: `&=`, `|=`, `^=`, `<<=`, `>>=`.
+  - Math in-place operations: `//=`, `**=`, `+=`, `-=`, `*=`, `/=`, `%=`.
+  - Supported across variables, container subscripts (`matrix[i][j] //= 2`, `hashmap[k] &= mask`), and object attributes (`node.flags |= 0x01`).
+- **Multiple Return & Yield Expressions**:
+  Functions can return or yield comma-separated tuples without parentheses (`return config, path, True`, `yield x, y`).
+- **Subgenerator Delegation (`yield from` PEP 380)**:
+  Transparent delegation from parent generators to subgenerators (`yield from sub_gen()`).
+- **Variable & Field Annotations (PEP 526)**:
+  Standalone type annotations without immediate value assignments (`title: str`, `count: int`) in class attributes and function bodies.
+- **Positional-Only Parameters (PEP 570)**:
+  Function definitions supporting `/` syntax (`def func(pos_only1, pos_only2, /, regular_arg):`).
+- **Complex Target Unpacking & Chained Assignments**:
+  - Mixed attribute and subscript targets in unpacked tuples (`opts.a, sub_dict["k"], _ = parse_tuple()`).
+  - Chained multi-target assignments (`a = b = c = initial_value`, `opts.mark = opts.remove = "flag"`).
+- **F-String Hardening & Error Tolerance**:
+  Tolerates empty interpolation expressions (`f"hello{}world"`) and format-specifier-only interpolations (`f"{:>10}"`).
+- **Built-in Reflection & Dot Utilities**:
+  - Built-in `getattr(obj, name, default)` across dynamic and strict modes.
+  - Full relative package imports (`from . import sibling`, `from ..sub import child`).
+  - Python Ellipsis (`...`) as valid literal expressions and type stubs.
+  - Float literals starting with a dot (`.5`, `.125`).
+- **Quiet Speculative SO Probing**:
+  Speculative C-ABI binary scanner operates quietly without polluting stdout when checking for optional host Python extension modules.
 - **PEP 822 Dedented Strings (`d"..."`)**: Compile-time stripped multiline text.
 - **PEP 750 Template Strings (`t"..."`)**: Zero-overhead template tokens.
-- **PEP 758 Multi-Catch Exceptions**: `except (TypeError, ValueError):` and `except TypeError, ValueError:`.
 - **Pattern Matching (`match ... case`)**: Structural pattern matching with literal, sequence, and wildcard matching.
 - **Modern Operators**: Walrus operator `:=`, Null-Coalescing `??`, and Safe Navigation `?.`.
 
