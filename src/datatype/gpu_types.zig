@@ -38,6 +38,7 @@ pub var buffer_copy_fn: ?*const fn (*GpuBuffer, *GpuBuffer) bool = null;
 pub var buffer_graph_deinit_fn: ?*const fn (*anyopaque) void = null;
 pub var buffer_graph_call_fn: ?*const fn (*anyopaque, []const u8, std.mem.Allocator, []const Dynamic) anyerror!Dynamic = null;
 pub var buffer_graph_getattr_fn: ?*const fn (*anyopaque, []const u8) ?Dynamic = null;
+pub var buffer_spmv_fn: ?*const fn (*GpuBuffer, *GpuBuffer) anyerror!*GpuBuffer = null;
 
 pub const GpuDtype = enum {
     f32,

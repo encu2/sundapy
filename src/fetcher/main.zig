@@ -4,6 +4,7 @@ const env_mod = @import("env.zig");
 const installer = @import("installer.zig");
 const sdist_mod = @import("sdist.zig");
 const build_exec = @import("build_exec.zig");
+const stdlib = @import("stdlib.zig");
 
 pub fn main(ctx: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -70,7 +71,7 @@ pub fn main(ctx: std.process.Init) !void {
         } else if (std.mem.startsWith(u8, arg, "-")) {
             // Ignore other flags
         } else {
-            if (env_mod.isInstallableLocalProject(io, arg) or env_mod.isLocalDirectory(io, arg) or env_mod.isPythonScript(arg)) {
+            if (stdlib.isNativeStdlib(arg) or env_mod.isInstallableLocalProject(io, arg) or env_mod.isLocalDirectory(io, arg) or env_mod.isPythonScript(arg)) {
                 try env_mod.appendUnique(allocator, &raw_packages, arg);
             } else if (env_mod.parseRequirementLine(arg)) |pkg_name| {
                 try env_mod.appendUnique(allocator, &raw_packages, pkg_name);
@@ -103,8 +104,21 @@ pub fn main(ctx: std.process.Init) !void {
 
     var primary_targets = std.ArrayList([]const u8).empty;
     defer primary_targets.deinit(allocator);
+    var external_packages = std.ArrayList([]const u8).empty;
+    defer external_packages.deinit(allocator);
+
     for (raw_packages.items) |p| {
-        try primary_targets.append(allocator, try allocator.dupe(u8, p));
+        if (stdlib.isNativeStdlib(p)) {
+            _ = try stdlib.provisionStdlib(allocator, io, p);
+            std.debug.print("[sundafetch] Provisioned built-in native stdlib '{s}' into .cache/src.\n", .{p});
+        } else {
+            try external_packages.append(allocator, p);
+            try primary_targets.append(allocator, try allocator.dupe(u8, p));
+        }
+    }
+
+    if (external_packages.items.len == 0) {
+        return;
     }
 
     cwd.createDirPath(io, ".cache/pyLibrary") catch {};
@@ -129,7 +143,7 @@ pub fn main(ctx: std.process.Init) !void {
     var queue = std.ArrayList([]const u8).empty;
     defer queue.deinit(allocator);
 
-    for (raw_packages.items) |pkg| {
+    for (external_packages.items) |pkg| {
         const canonical = if (env_mod.isLocalProjectPath(io, pkg) or env_mod.isPythonScript(pkg))
             try allocator.dupe(u8, pkg)
         else
@@ -159,6 +173,10 @@ pub fn main(ctx: std.process.Init) !void {
             break :blk try installer.fetchAndInstallPackage(allocator, io, &bundle, pkg, target_env);
         };
         for (new_deps) |dep| {
+            if (stdlib.isNativeStdlib(dep)) {
+                _ = try stdlib.provisionStdlib(allocator, io, dep);
+                continue;
+            }
             const canonical_dep = try env_mod.canonicalPkgName(allocator, dep);
             if (!visited_map.contains(canonical_dep) and !env_mod.isPackageInstalled(io, canonical_dep)) {
                 try visited_map.put(canonical_dep, true);

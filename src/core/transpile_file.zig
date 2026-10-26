@@ -73,6 +73,10 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
 
     try cwd.writeFile(io, .{ .sub_path = zig_src_path, .data = zig_code });
     
+    if (transpiler.has_async_def) {
+        _ = try compiler.ensureNativeStdlib(allocator, io, "asyncio", "asyncio");
+    }
+
     const dir_path = std.fs.path.dirname(file_path) orelse ".";
     for (transpiler.imported_modules.items) |mod| {
         var clean_mod = mod;
@@ -217,38 +221,8 @@ pub fn transpileFile(allocator: std.mem.Allocator, io: std.Io, file_path: []cons
             if (c.ptr != mod.ptr) allocator.free(c);
         }
 
-        const embedded = @import("../embedded_datatype.zig");
-        const stdlib_rel_name = try std.fmt.allocPrint(allocator, "sundapy_std/{s}.zig", .{mod});
-        defer allocator.free(stdlib_rel_name);
-        
-        var embedded_stdlib_data: ?[]const u8 = null;
-        for (embedded.files) |entry| {
-            if (std.mem.eql(u8, entry[0], stdlib_rel_name)) {
-                embedded_stdlib_data = entry[1];
-            }
-        }
-        
-        if (embedded_stdlib_data) |stdlib_code| {
-            const dest_path = try std.fmt.allocPrint(allocator, ".cache/src/{s}.zig", .{mod_slash});
-            defer allocator.free(dest_path);
-            
-            if (std.fs.path.dirname(dest_path)) |dir| {
-                cwd.createDirPath(io, dir) catch {};
-            }
-            cwd.writeFile(io, .{ .sub_path = dest_path, .data = stdlib_code }) catch {};
-            
-            for (embedded.files) |entry| {
-                if (std.mem.startsWith(u8, entry[0], "sundapy_std/")) {
-                    const std_rel = entry[0]["sundapy_std/".len..];
-                    if (std.fmt.allocPrint(allocator, ".cache/src/{s}", .{std_rel})) |std_dest| {
-                        defer allocator.free(std_dest);
-                        if (std.fs.path.dirname(std_dest)) |parent_dir| {
-                            cwd.createDirPath(io, parent_dir) catch {};
-                        }
-                        cwd.writeFile(io, .{ .sub_path = std_dest, .data = entry[1] }) catch {};
-                    } else |_| {}
-                }
-            }
+        if (leading_dots == 0 and try compiler.ensureNativeStdlib(allocator, io, raw_mod, mod_slash)) {
+            continue;
         } else {
             const mod_file = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{resolved_dir, mod_slash});
             defer allocator.free(mod_file);

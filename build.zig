@@ -19,6 +19,12 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const embedded_stdlib_mod = b.createModule(.{
+        .root_source_file = b.path("src/embedded_stdlib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const fetcher_exe = b.addExecutable(.{
         .name = "sundafetch",
         .root_module = b.createModule(.{
@@ -29,6 +35,9 @@ pub fn build(b: *std.Build) void {
             .unwind_tables = .none,
             .pic = false,
             .omit_frame_pointer = true,
+            .imports = &.{
+                .{ .name = "embedded_stdlib", .module = embedded_stdlib_mod },
+            },
         }),
     });
     b.installArtifact(fetcher_exe);

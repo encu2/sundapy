@@ -11,6 +11,7 @@ pub const TaskState = struct {
 };
 
 pub fn createTask(comptime func: anytype, args: []const Dynamic) anyerror!Dynamic {
+    @import("datatype/dynamic.zig").global_await_fn = awaitTask;
     const alloc = std.heap.page_allocator;
     const state = try alloc.create(TaskState);
     state.* = TaskState{

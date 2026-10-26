@@ -2,7 +2,7 @@ const std = @import("std");
 const dynamic = @import("dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 const gpu_types = @import("gpu_types.zig");
-const quant = @import("sundapy_std/gpu_quant.zig");
+const quant = @import("numeric/quant.zig");
 
 pub fn readCompressedItem(ci: *const gpu_types.CompressionInfo, idx: usize) !Dynamic {
     const p = ci.raw_payload orelse return Dynamic.initFloat(0.0);

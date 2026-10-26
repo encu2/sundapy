@@ -111,29 +111,41 @@ fi
 
 echo -e "  ${GREEN}✔${NC} Profil terpilih: ${BOLD}${OPTIMIZE_MODE}${NC}"
 
-# 3. Sinkronisasi Embedded Datatype
-echo -e "\n${BOLD}[2/4] Menyinkronkan Arsitektur Embedded Standard Library...${NC}"
+# 3. Sinkronisasi Embedded Datatype & Stdlib
+echo -e "\n${BOLD}[2/4] Menyinkronkan Arsitektur Embedded Datatype (SundaPy) & Stdlib (SundaFetch)...${NC}"
 python3 - << 'PYEOF'
 import os
 
-all_files = []
+datatype_files = []
+stdlib_files = []
 for root, _, files in os.walk("src/datatype"):
     for file in files:
         if file.endswith(".zig"):
             path = os.path.join(root, file).replace("\\", "/")
             rel_path = os.path.relpath(path, "src/datatype").replace("\\", "/")
             embed_path = "datatype/" + rel_path
-            all_files.append((rel_path, embed_path))
+            if rel_path.startswith("sundapy_std/"):
+                std_rel = rel_path[len("sundapy_std/"):]
+                stdlib_files.append((std_rel, embed_path))
+            else:
+                datatype_files.append((rel_path, embed_path))
 
-all_files.sort(key=lambda x: x[0])
+datatype_files.sort(key=lambda x: x[0])
+stdlib_files.sort(key=lambda x: x[0])
 
 with open("src/embedded_datatype.zig", "w") as out:
-    out.write("pub const files = [_]struct { []const u8, []const u8 } {\n")
-    for rel_path, embed_path in all_files:
+    out.write("pub const files = [_]struct { []const u8, []const u8 }{\n")
+    for rel_path, embed_path in datatype_files:
         out.write(f'    .{{ "{rel_path}", @embedFile("{embed_path}") }},\n')
     out.write("};\n")
+
+with open("src/embedded_stdlib.zig", "w") as out:
+    out.write("pub const files = [_]struct { []const u8, []const u8 }{\n")
+    for std_rel, embed_path in stdlib_files:
+        out.write(f'    .{{ "{std_rel}", @embedFile("{embed_path}") }},\n')
+    out.write("};\n")
 PYEOF
-echo -e "  ${GREEN}✔${NC} Embedded datatypes siap dan disematkan."
+echo -e "  ${GREEN}✔${NC} Embedded datatypes (SundaPy) dan stdlibs (SundaFetch) siap dan disematkan."
 
 # 4. Compile menggunakan Zig
 echo -e "\n${BOLD}[3/4] Mengompilasi SundaPy & SundaFetch (Mode: ${OPTIMIZE_MODE})...${NC}"

@@ -22,6 +22,7 @@ pub const Transpiler = struct {
     is_root: bool,
     escape_analyzer: *@import("analysis/escape.zig").EscapeAnalyzer,
     current_func_has_yield: bool = false,
+    has_async_def: bool = false,
     
     depth: usize = 0,
     mod_name: []const u8 = "",
@@ -193,6 +194,9 @@ pub const Transpiler = struct {
                 }
             },
             .def_stmt => |d| {
+                if (d.is_async) {
+                    self.has_async_def = true;
+                }
                 for (d.body.items) |s| try self.collectImports(s);
             },
             .if_stmt => |ifs| {
@@ -206,14 +210,29 @@ pub const Transpiler = struct {
             },
             .while_stmt => |w| {
                 for (w.body.items) |s| try self.collectImports(s);
+                if (w.else_body) |eb| {
+                    for (eb.items) |s| try self.collectImports(s);
+                }
             },
             .for_stmt => |f| {
                 for (f.body.items) |s| try self.collectImports(s);
+                if (f.else_body) |eb| {
+                    for (eb.items) |s| try self.collectImports(s);
+                }
+            },
+            .with_stmt => |w| {
+                for (w.body.items) |s| try self.collectImports(s);
             },
             .try_stmt => |t| {
                 for (t.body.items) |s| try self.collectImports(s);
+                for (t.except_clauses.items) |ec| {
+                    for (ec.body.items) |s| try self.collectImports(s);
+                }
                 if (t.except_branch) |e| {
                     for (e.items) |s| try self.collectImports(s);
+                }
+                if (t.else_branch) |eb| {
+                    for (eb.items) |s| try self.collectImports(s);
                 }
                 if (t.finally_branch) |fb| {
                     for (fb.items) |s| try self.collectImports(s);

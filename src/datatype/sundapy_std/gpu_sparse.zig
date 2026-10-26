@@ -270,3 +270,16 @@ pub fn compress_dense_to_bcsc(
     };
     return self;
 }
+
+const gpu_types = @import("datatype/gpu_types.zig");
+
+pub fn bufferSpmvHook(self: *gpu_types.GpuBuffer, x_buf: *gpu_types.GpuBuffer) anyerror!*gpu_types.GpuBuffer {
+    const rows = if (self.ndim >= 2) self.shape[0] else self.size;
+    const cols = if (self.ndim >= 2) self.shape[1] else 1;
+    const y_buf = try gpu_types.GpuBuffer.init(self.allocator, rows);
+    const bcsr = try compress_dense_to_bcsr(self.allocator, self.data, rows, cols, 1e-6);
+    defer bcsr.deinit();
+    try sparse_spmv(bcsr, x_buf.data[0..cols], y_buf.data[0..rows]);
+    return y_buf;
+}
+

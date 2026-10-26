@@ -3,7 +3,7 @@ const dynamic = @import("dynamic.zig");
 const Dynamic = dynamic.Dynamic;
 const gpu_types = @import("gpu_types.zig");
 const GpuBuffer = gpu_types.GpuBuffer;
-const quant = @import("sundapy_std/gpu_quant.zig");
+const quant = @import("numeric/quant.zig");
 
 pub fn parseIndex(self: *const GpuBuffer, index: Dynamic) !usize {
     if (index.value == .i64_type) {
@@ -272,14 +272,11 @@ pub fn callMethod(self: *GpuBuffer, alloc_mem: std.mem.Allocator, args: []const 
         const x_dyn = if (args.len >= 2 and args[0].value == .gpu_buffer_type) args[1] else if (args.len > 0) args[0] else return error.TypeError;
         if (x_dyn.value != .gpu_buffer_type) return error.TypeError;
         const x_buf: *GpuBuffer = @ptrCast(@alignCast(x_dyn.value.gpu_buffer_type));
-        const rows = if (self.ndim >= 2) self.shape[0] else self.size;
-        const cols = if (self.ndim >= 2) self.shape[1] else 1;
-        const y_buf = try GpuBuffer.init(self.allocator, rows);
-        const sparse_mod = @import("sundapy_std/gpu_sparse.zig");
-        const bcsr = try sparse_mod.compress_dense_to_bcsr(self.allocator, self.data, rows, cols, 1e-6);
-        defer bcsr.deinit();
-        try sparse_mod.sparse_spmv(bcsr, x_buf.data[0..cols], y_buf.data[0..rows]);
-        return y_buf.asDynamic();
+        if (gpu_types.buffer_spmv_fn) |spmv_fn| {
+            const y_buf = try spmv_fn(self, x_buf);
+            return y_buf.asDynamic();
+        }
+        return error.SparseNotLoaded;
     } else if (std.mem.eql(u8, self.last_method, "commit_page")) {
         if (!self.is_sparse_vm or self.sparse_vm_ptr == null) return error.NotSparseBuffer;
         const page_idx = try parsePageIdx(args);

@@ -354,7 +354,8 @@ Every file in `src/` adheres to a strict modular design with **strictly $\le$ 40
 ```text
 src/
 ├── main.zig                              # Minimal entrypoint delegating CLI arguments to runner
-├── embedded_datatype.zig                 # Compile-time @embedFile registry of all runtime datatypes & stdlib
+├── embedded_datatype.zig                 # Compile-time @embedFile registry of core runtime datatypes (sundapy)
+├── embedded_stdlib.zig                   # Compile-time @embedFile registry of native standard libraries (sundafetch)
 │
 ├── cli/                                  # Command Line Interface & Build Orchestrator
 │   ├── runner.zig                        # Main CLI dispatcher, compilation flow, caching, binary execution
@@ -373,6 +374,7 @@ src/
 │   ├── main.zig                          # CLI entrypoint for package resolution & extraction
 │   ├── env.zig                           # Environment detection (Python version, ABI tags, OS, Arch)
 │   ├── installer.zig                     # PyPI JSON API client, wheel resolver, transitive dependencies
+│   ├── stdlib.zig                        # Native standard library resolver and on-demand offline provisioner
 │   ├── types.zig                         # Target environment & package metadata structures
 │   ├── zip.zig                           # Pure Zig streaming ZIP/Deflate archive decompressor
 │   ├── detect_dist.zig                   # Dist-info & egg-info console_scripts entry point parser

@@ -382,6 +382,7 @@ pub fn __sundapy_module_init() !void {
     @import("gpu_graph.zig").initGraphBridge();
     gpu_types.buffer_compress_hook = @import("gpu_compress.zig").bufferCompressHook;
     gpu_types.buffer_decompress_hook = @import("gpu_compress.zig").bufferDecompressHook;
+    gpu_types.buffer_spmv_fn = @import("gpu_sparse.zig").bufferSpmvHook;
     gpu_types.budget_register_fn = @import("gpu_budget.zig").registerBuffer;
     gpu_types.budget_unregister_fn = @import("gpu_budget.zig").unregisterBuffer;
 }

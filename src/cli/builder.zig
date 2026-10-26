@@ -62,17 +62,6 @@ pub fn extractEmbeddedDatatype(allocator: std.mem.Allocator, io: std.Io) void {
         cwd.writeFile(io, .{ .sub_path = full_path, .data = data }) catch |write_err| {
             std.debug.print("Failed to write embedded file {s}: {any}\n", .{ full_path, write_err });
         };
-
-        if (std.mem.startsWith(u8, rel_path, "sundapy_std/")) {
-            const std_rel = rel_path["sundapy_std/".len..];
-            if (std.fmt.allocPrint(allocator, ".cache/src/{s}", .{std_rel})) |std_dest| {
-                defer allocator.free(std_dest);
-                if (std.fs.path.dirname(std_dest)) |parent_dir| {
-                    cwd.createDirPath(io, parent_dir) catch {};
-                }
-                cwd.writeFile(io, .{ .sub_path = std_dest, .data = data }) catch {};
-            } else |_| {}
-        }
     }
 }
 

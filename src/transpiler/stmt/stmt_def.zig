@@ -174,8 +174,10 @@ pub fn transpileDefStmt(self: *Transpiler, d: anytype, global_vars: *std.StringH
             defer self.allocator.free(p_name);
             try self.emit("try _args.append(alloc, {s});\n", .{p_name});
         }
+        const asyncio_slash = try self.getModSlash("asyncio");
+        defer self.allocator.free(asyncio_slash);
         try self.emitIndent();
-        try self.emit("return try @import(\"asyncio.zig\").createTask({s}_async_impl, _args.items);\n", .{d.name});
+        try self.emit("return try @import(\"{s}.zig\").createTask({s}_async_impl, _args.items);\n", .{ asyncio_slash, d.name });
         self.indent_level -= 1;
         try self.emit("}}\n", .{});
         

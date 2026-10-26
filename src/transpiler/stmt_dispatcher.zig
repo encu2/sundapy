@@ -93,6 +93,8 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
             defer self.allocator.free(mod_ident);
             for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-') { c_.* = '_'; } }
             try self.emit("const {s} = @import(\"{s}.zig\");\n", .{target_name, mod_slash});
+            try self.emitIndent();
+            try self.emit("if (@hasDecl({s}, \"__sundapy_module_init\")) try {s}.__sundapy_module_init();\n", .{ target_name, target_name });
         },
         .from_import => |f| {
             const base_target_name = if (f.alias) |a| a else f.name;
@@ -105,6 +107,8 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
                 const mod_slash = try self.getModSlash(full_mod);
                 defer self.allocator.free(mod_slash);
                 try self.emit("const {s} = @import(\"{s}.zig\");\n", .{ target_name, mod_slash });
+                try self.emitIndent();
+                try self.emit("if (@hasDecl({s}, \"__sundapy_module_init\")) try {s}.__sundapy_module_init();\n", .{ target_name, target_name });
             } else {
                 const mod_slash = try self.getModSlash(f.module);
                 defer self.allocator.free(mod_slash);
@@ -113,6 +117,9 @@ pub fn transpileStmt(self: *Transpiler, stmt: *ast.Node, declared_vars: *std.Str
                 for (mod_ident) |*c_| { if (c_.* == '/' or c_.* == '(' or c_.* == ')' or c_.* == '-' or c_.* == '.') { c_.* = '_'; } }
 
                 try self.emit("const {s}_mod = @import(\"{s}.zig\");\n", .{mod_ident, mod_slash});
+                try self.emitIndent();
+                try self.emit("if (@hasDecl({s}_mod, \"__sundapy_module_init\")) try {s}_mod.__sundapy_module_init();\n", .{ mod_ident, mod_ident });
+                try self.emitIndent();
                 try self.emit("const _sundapy_is_abi_{s} = @hasDecl({s}_mod, \"_is_abi\");\n", .{mod_ident, mod_ident});
                 if (!std.mem.startsWith(u8, target_name, "_star_")) {
                     try self.emit("const {s} = if (!_sundapy_is_abi_{s}) {s}_mod.{s} else void;\n", .{target_name, mod_ident, mod_ident, target_name});
